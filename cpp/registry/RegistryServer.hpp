@@ -93,10 +93,11 @@ private:
         size_t messageBytesProcessed;
         uint64_t inFlightRequestId;
     };
-
+    std::mutex _clients_req_mutex;
     std::unordered_map<int, Client> _clients;
     
     uint64_t _lastRequestId;
+ 
     std::unordered_map<uint64_t, int> _inFlightRequests; // request to fd mapping
     std::vector<RegistryRequest> _receivedRequests;
 

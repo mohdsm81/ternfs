@@ -6,6 +6,8 @@
 #include "Assert.hpp"
 #include "Env.hpp"
 #include "MsgsGen.hpp"
+#include <mutex>
+#include <shared_mutex>
 
 bool RegistryServer::init() {
     _epollFd = epoll_create1(0);
@@ -74,19 +76,22 @@ bool RegistryServer::receiveMessages(Duration timeout){
     }
 
     bool haveUdpMessages = false;
-    for (int i = 0; i < numEvents; ++i) {
-        if (_events[i].data.fd == _sockFds[0]) {
-            _acceptConnection(_sockFds[0]); 
-        } else if (_events[i].data.fd == _sockFds[1]) {
-            _acceptConnection(_sockFds[1]);
-        } else if (_socks[0].containsFd(_events[i].data.fd)) {
-            haveUdpMessages = true;
-        } else if (_events[i].events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) {
-            _removeClient(_events[i].data.fd);
-        } else if (_events[i].events & EPOLLIN) {
-            _readClient(_events[i].data.fd);
-        } else if (_events[i].events & EPOLLOUT) {
-            _writeClient(_events[i].data.fd);
+    {
+        std::lock_guard<std::mutex> _(_clients_req_mutex);
+        for (int i = 0; i < numEvents; ++i) {
+            if (_events[i].data.fd == _sockFds[0]) {
+                _acceptConnection(_sockFds[0]); 
+            } else if (_events[i].data.fd == _sockFds[1]) {
+                _acceptConnection(_sockFds[1]);
+            } else if (_socks[0].containsFd(_events[i].data.fd)) {
+                haveUdpMessages = true;
+            } else if (_events[i].events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) {
+                _removeClient(_events[i].data.fd);
+            } else if (_events[i].events & EPOLLIN) {
+                _readClient(_events[i].data.fd);
+            } else if (_events[i].events & EPOLLOUT) {
+                _writeClient(_events[i].data.fd);
+            }
         }
     }
     if (haveUdpMessages) {
@@ -116,6 +121,7 @@ void RegistryServer::sendLogsDBMessages(std::vector<LogsDBRequest *>& requests, 
 }
 
 void RegistryServer::sendRegistryResponses(std::vector<RegistryResponse>& responses) {
+    std::lock_guard<std::mutex> _(_clients_req_mutex);
     for (auto& response : responses) {
         auto inFlightIt = _inFlightRequests.find(response.requestId);
         if (inFlightIt == _inFlightRequests.end()) {
@@ -132,6 +138,7 @@ void RegistryServer::sendRegistryResponses(std::vector<RegistryResponse>& respon
         }
         _sendResponse(fd, response.resp);
     }
+    responses.clear();
 }
 
 static constexpr size_t MESSAGE_HEADER_SIZE = 8;

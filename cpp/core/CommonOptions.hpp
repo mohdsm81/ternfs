@@ -371,6 +371,14 @@ static inline bool parseIpv4Addr(const std::string& arg, IpPort& addrOut) {
     }
     addr.sin_port = htons(port);
     addrOut = IpPort::fromSockAddrIn(addr);
+    switch (addrOut.ip.data[0] & 0xF0) {
+    case 0xE0:
+        fprintf(stderr, "Multicast range not supported. Address '%s'\n\n", arg.c_str());
+        return false;
+    case 0xF0:
+        fprintf(stderr, "Reserved range not supported. Address '%s'\n\n", arg.c_str());
+        return false;
+    }
     return true;
 }
 

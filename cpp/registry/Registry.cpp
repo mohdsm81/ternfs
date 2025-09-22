@@ -25,6 +25,7 @@
 #include "Registry.hpp"
 #include "Registerer.hpp"
 #include "RegistryDB.hpp"
+#include "RegistryReader.hpp"
 #include "RegistryServer.hpp"
 
 #include "SharedRocksDB.hpp"
@@ -66,7 +67,10 @@ struct RegistryState {
 
 class RegistryLoop : public Loop {
 public:
-    RegistryLoop(Logger &logger, std::shared_ptr<XmonAgent> xmon, const RegistryOptions& options, Registerer& registerer, RegistryServer& server, LogsDB& logsDB, RegistryDB& registryDB) :
+    RegistryLoop(
+        Logger &logger, std::shared_ptr<XmonAgent> xmon, const RegistryOptions& options,
+        Registerer& registerer, RegistryServer& server, LogsDB& logsDB, RegistryDB& registryDB,
+        std::vector<RegistryReader*> readers) :
         Loop(logger, xmon, "server"),
         _options(options),
         _registerer(registerer),
@@ -75,7 +79,8 @@ public:
         _registryDB(registryDB),
         _replicas({}),
         _replicaFinishedBootstrap({}),
-        _boostrapFinished(false)
+        _boostrapFinished(false),
+        _readers(std::move(readers))
         {}
 
     virtual ~RegistryLoop() {}
@@ -104,115 +109,25 @@ public:
                 continue;
             }
             switch (req.req.kind()) {
-            case RegistryMessageKind::LOCAL_SHARDS: {
-                auto& registryResp = resp.resp.setLocalShards();
-                registryResp.shards.els = _shardsAtLocation(_options.logsDBOptions.location);
-                break;
-            }
-            case RegistryMessageKind::LOCAL_CDC: {
-                auto& registryResp = resp.resp.setLocalCdc();
-                auto cdcInfo = _cdcAtLocation(_options.logsDBOptions.location);
-                registryResp.addrs = cdcInfo.addrs;
-                registryResp.lastSeen = cdcInfo.lastSeen;
-                break;
-            }
-            case RegistryMessageKind::INFO: {
-                auto& registryResp = resp.resp.setInfo();
-                auto cachedInfo = _info();
-                registryResp.capacity = cachedInfo.capacity;
-                registryResp.available = cachedInfo.available;
-                registryResp.blocks = cachedInfo.blocks;
-                registryResp.numBlockServices = cachedInfo.numBlockServices;
-                registryResp.numFailureDomains = cachedInfo.numFailureDomains;
-                break;
-            }
-            case RegistryMessageKind::REGISTRY: {
-                auto &registryResp = resp.resp.setRegistry();
-                registryResp.addrs = _server.boundAddresses();
-                break;
-            }
-            case RegistryMessageKind::LOCATIONS: {
-                auto& registryResp = resp.resp.setLocations();
-                _registryDB.locations(registryResp.locations.els);
-                break;
-            }
-            case RegistryMessageKind::LOCAL_CHANGED_BLOCK_SERVICES: {
-                auto& registryResp = resp.resp.setLocalChangedBlockServices();
-                auto& changedReq = req.req.getLocalChangedBlockServices();
-                registryResp.blockServices.els = _changedBlockServices(_options.logsDBOptions.location, changedReq.changedSince);
-                break;
-            }
-            case RegistryMessageKind::CHANGED_BLOCK_SERVICES_AT_LOCATION: {
-                auto& registryResp = resp.resp.setChangedBlockServicesAtLocation();
-                auto& changedReq = req.req.getChangedBlockServicesAtLocation();
-                registryResp.blockServices.els = _changedBlockServices(changedReq.locationId, changedReq.changedSince);
-                break;
-            }
-            case RegistryMessageKind::SHARDS_AT_LOCATION: {
-                auto& registryResp = resp.resp.setShardsAtLocation();
-                registryResp.shards.els = _shardsAtLocation(req.req.getShardsAtLocation().locationId);
-                break;
-            }
-            case RegistryMessageKind::CDC_AT_LOCATION: {
-                auto& registryResp = resp.resp.setCdcAtLocation();
-                auto cdcInfo = _cdcAtLocation(req.req.getCdcAtLocation().locationId);
-                registryResp.addrs = cdcInfo.addrs;
-                registryResp.lastSeen = cdcInfo.lastSeen;
-                break;
-            }
-            case RegistryMessageKind::ALL_REGISTRY_REPLICAS: {
-                auto &allRegiResp = resp.resp.setAllRegistryReplicas();
-                allRegiResp.replicas.els = _registries();
-                break;
-            }
-            case RegistryMessageKind::SHARD_BLOCK_SERVICES_DE_PR_EC_AT_ED: {
-                auto& registryResp = resp.resp.setShardBlockServicesDEPRECATED();
-                auto& bsReq = req.req.getShardBlockServicesDEPRECATED();
-                std::vector<BlockServiceInfoShort> blockservices;
-                _registryDB.shardBlockServices(bsReq.shardId, blockservices);
-                for (auto& bs : blockservices) {
-                    registryResp.blockServices.els.push_back(bs.id);
-                }
-                break;
-            }
-            case RegistryMessageKind::CDC_REPLICAS_DE_PR_EC_AT_ED: {
-                auto& registryResp = resp.resp.setCdcReplicasDEPRECATED();
-                registryResp.replicas.els = _cdcReplicas();
-                break;
-            }
-            case RegistryMessageKind::ALL_SHARDS: {
-                auto& registryResp = resp.resp.setAllShards();
-                _populateShardCache();
-                registryResp.shards.els = _cachedShardInfo;
-                break;
-            }
-
-            case RegistryMessageKind::SHARD_BLOCK_SERVICES: {
-                auto& registryResp = resp.resp.setShardBlockServices();
-                auto& bsReq = req.req.getShardBlockServices();
-                _registryDB.shardBlockServices(bsReq.shardId, registryResp.blockServices.els);
-                break;
-            }
-            case RegistryMessageKind::ALL_CDC: {
-                auto& registryResp = resp.resp.setAllCdc();
-                _populateCdcCache();
-                registryResp.replicas.els = _cachedCdc;
-                break;
-            }
-            case RegistryMessageKind::ERASE_DECOMMISSIONED_BLOCK: {
-                auto& eraseReq = req.req.getEraseDecommissionedBlock();
-                BincodeFixedBytes<8> proof;
-                if (_eraseBlock(eraseReq, proof)) {
-                     auto& registryResp = resp.resp.setEraseDecommissionedBlock();
-                     registryResp.proof = proof;
-                } else {
-                    resp.resp.setError() = TernError::INTERNAL_ERROR;
-                }
-                break;
-            }
-            case RegistryMessageKind::ALL_BLOCK_SERVICES_DEPRECATED: {
-                auto &registryResp = resp.resp.setAllBlockServicesDeprecated();
-                registryResp.blockServices.els = _allBlockServices();
+            case RegistryMessageKind::LOCAL_SHARDS:
+            case RegistryMessageKind::LOCAL_CDC:
+            case RegistryMessageKind::INFO:
+            case RegistryMessageKind::REGISTRY:
+            case RegistryMessageKind::LOCATIONS:
+            case RegistryMessageKind::LOCAL_CHANGED_BLOCK_SERVICES:
+            case RegistryMessageKind::CHANGED_BLOCK_SERVICES_AT_LOCATION:
+            case RegistryMessageKind::SHARDS_AT_LOCATION:
+            case RegistryMessageKind::CDC_AT_LOCATION:
+            case RegistryMessageKind::ALL_REGISTRY_REPLICAS:
+            case RegistryMessageKind::SHARD_BLOCK_SERVICES_DE_PR_EC_AT_ED:
+            case RegistryMessageKind::CDC_REPLICAS_DE_PR_EC_AT_ED:
+            case RegistryMessageKind::ALL_SHARDS:
+            case RegistryMessageKind::SHARD_BLOCK_SERVICES:
+            case RegistryMessageKind::ALL_CDC:
+            case RegistryMessageKind::ERASE_DECOMMISSIONED_BLOCK:
+            case RegistryMessageKind::ALL_BLOCK_SERVICES_DEPRECATED:{
+                _readRequests.emplace_back(std::move(req));
+                _registryResponses.pop_back();
                 break;
             }
             case RegistryMessageKind::REGISTER_BLOCK_SERVICES: {
@@ -321,6 +236,21 @@ public:
             }
         }
         receivedRequests.clear();
+        {
+            auto readReqBegin = _readRequests.begin();
+            auto readReqEnd = _readRequests.end();
+            for (size_t i = 0; i < _readers.size() && readReqBegin != readReqEnd; ++i) {
+                auto& reader = *_readers[i];
+                readReqBegin = reader.pushRequests(readReqBegin,readReqEnd);
+            }
+            for (;readReqBegin != readReqEnd; ++readReqBegin) {
+                auto& resp = _registryResponses.emplace_back();
+                resp.requestId = readReqBegin->requestId;
+            }
+            _readRequests.clear();
+        }
+
+
 
         if (_logsDB.isLeader()) {
             _logsDB.appendEntries(_logEntries);
@@ -421,7 +351,6 @@ public:
         _writeResults.clear();
         _server.sendRegistryResponses(_registryResponses);
         _registryResponses.clear();
-        _clearCaches();
     }
 private:
     const RegistryOptions& _options;
@@ -434,7 +363,12 @@ private:
     std::array<bool, LogsDB::REPLICA_COUNT> _replicaFinishedBootstrap;
     bool _boostrapFinished;
 
+    std::vector<RegistryReader*> _readers;
+    std::vector<RegistryRequest> _readRequests;
+
+
     std::vector<RegistryResponse> _registryResponses;
+
 
     // buffer for reading/writing log entries
     std::vector<LogsDBLogEntry> _logEntries;
@@ -448,34 +382,6 @@ private:
 
     // buffer for RegistryDB processLogEntries result
     std::vector<RegistryDBWriteResult> _writeResults;
-
-    // local cache for common data, read once per step
-
-    std::vector<FullRegistryInfo> _cachedRegistries;
-
-    std::vector<FullShardInfo> _cachedShardInfo;
-    std::unordered_map<LocationId, std::vector<ShardInfo>> _cachedShardInfoPerLocation;
-
-    std::vector<FullBlockServiceInfo> _cachedBlockServices;
-    std::vector<BlockServiceDeprecatedInfo> _cachedAllBlockServices;
-    std::unordered_map<BlockServiceId, AES128Key> _decommissionedServices;
-
-    std::vector<CdcInfo> _cachedCdc;
-
-    InfoResp _cachedInfo;
-
-    void _clearCaches() {
-        _cachedRegistries.clear();
-        _cachedShardInfo.clear();
-        for(auto& loc : _cachedShardInfoPerLocation) {
-            loc.second.clear();
-            loc.second.resize(256);
-        }
-        _cachedBlockServices.clear();
-        _cachedAllBlockServices.clear();
-        _cachedInfo.clear();
-        _cachedCdc.clear();
-    }
 
     void _processBootstrapRequest(RegistryRequest &req) {
         auto& resp = _registryResponses.emplace_back();
@@ -524,170 +430,6 @@ private:
             // empty response removes client
             break;
         }
-    }
-
-    void _populateShardCache() {
-        if (!_cachedShardInfo.empty()) {
-            return;
-        }
-        _registryDB.shards(_cachedShardInfo);
-        for(auto& shard : _cachedShardInfo) {
-            if (!shard.isLeader) {
-                continue;
-            }
-            auto& locShards = _cachedShardInfoPerLocation[shard.locationId];
-            if (locShards.empty()) {
-                locShards.resize(256);
-            }
-            auto& infoShort = locShards[shard.id.shardId().u8];
-            infoShort.addrs = shard.addrs;
-            infoShort.lastSeen = shard.lastSeen;
-        }
-        if (_cachedShardInfoPerLocation.empty()) {
-            _cachedShardInfoPerLocation[_options.logsDBOptions.location].resize(256);
-        }
-    }
-
-    const std::vector<FullRegistryInfo>& _registries() {
-        if (_cachedRegistries.empty()) {
-            _registryDB.registries(_cachedRegistries);
-        }
-        return _cachedRegistries;
-    }
-
-    const std::vector<ShardInfo>& _shardsAtLocation(LocationId location) {
-        _populateShardCache();
-        return _cachedShardInfoPerLocation[location];
-    }
-
-    void _populateCdcCache() {
-        if (!_cachedCdc.empty()) {
-            return;
-        }
-        _registryDB.cdcs(_cachedCdc);
-    }
-
-    CdcInfo _cdcAtLocation(LocationId location) {
-        _populateCdcCache();
-        for(const auto& cdc : _cachedCdc) {
-            if (cdc.isLeader && cdc.locationId == location) {
-                return cdc;
-            }
-        }
-        return CdcInfo{};
-    }
-
-    std::vector<AddrsInfo> _cdcReplicas() {
-        _populateCdcCache();
-        std::vector<AddrsInfo> res;
-        res.resize(LogsDB::REPLICA_COUNT);
-        for(const auto& cdc : _cachedCdc) {
-            if (cdc.locationId != 0) {
-                continue;
-            }
-            res[cdc.replicaId.u8] = cdc.addrs;
-        }
-        return res;
-    }
-
-    void _populateBlockServiceCache() {
-        if (!_cachedBlockServices.empty()) {
-            return;
-        }
-        _registryDB.blockServices(_cachedBlockServices);
-        std::sort(_cachedBlockServices.begin(), _cachedBlockServices.end(),
-        [](const FullBlockServiceInfo& a, const FullBlockServiceInfo& b) {
-                    return a.lastInfoChange > b.lastInfoChange;
-        });
-
-        for (auto& bs : _cachedBlockServices) {
-            auto& infoDeprecated = _cachedAllBlockServices.emplace_back();
-            infoDeprecated.id = bs.id;
-            infoDeprecated.addrs = bs.addrs;
-            infoDeprecated.storageClass = bs.storageClass;
-            infoDeprecated.failureDomain = bs.failureDomain;
-            infoDeprecated.secretKey = bs.secretKey;
-            infoDeprecated.flags = bs.flags;
-            infoDeprecated.capacityBytes = bs.capacityBytes;
-            infoDeprecated.availableBytes = bs.availableBytes;
-            infoDeprecated.blocks = bs.blocks;
-            infoDeprecated.path = bs.path;
-            infoDeprecated.lastSeen = bs.lastSeen;
-            infoDeprecated.hasFiles = bs.hasFiles;
-            infoDeprecated.flagsLastChanged = bs.lastInfoChange;
-            if (bs.flags == BlockServiceFlags::DECOMMISSIONED && !_decommissionedServices.contains(bs.id)) {
-                auto it = _decommissionedServices.emplace(bs.id, AES128Key{}).first;
-                expandKey(bs.secretKey.data, it->second);
-            }
-            if (bs.flags != BlockServiceFlags::DECOMMISSIONED) {
-                ++_cachedInfo.numBlockServices;
-                _cachedInfo.blocks += bs.blocks;
-                _cachedInfo.available += bs.availableBytes;
-                _cachedInfo.capacity += bs.capacityBytes;
-            }
-        }
-    }
-
-    InfoResp _info() {
-        _populateBlockServiceCache();
-        return _cachedInfo;
-    }
-
-    std::vector<BlockServiceDeprecatedInfo> _allBlockServices() {
-        _populateBlockServiceCache();
-        return _cachedAllBlockServices;
-    }
-
-    std::vector<BlockService> _changedBlockServices(LocationId location, TernTime changedSince) {
-        _populateBlockServiceCache();
-        std::vector<BlockService> res;
-        for (auto& bs : _cachedBlockServices) {
-            if (bs.lastInfoChange < changedSince) {
-                break;
-            }
-            if (bs.locationId != location) {
-                continue;
-            }
-            auto& bsOut = res.emplace_back();
-            bsOut.id = bs.id;
-            bsOut.addrs = bs.addrs;
-            bsOut.flags = bsOut.flags;
-        }
-        return res;
-    }
-
-    bool _eraseBlock(const EraseDecommissionedBlockReq& req, BincodeFixedBytes<8>& proof) {
-        _populateBlockServiceCache();
-        auto bsIt = _decommissionedServices.find(req.blockServiceId);
-        if (bsIt == _decommissionedServices.end()) {
-            return false;
-        }
-
-        // validate certificate
-        {
-            char buf[32];
-            memset(buf, 0, sizeof(buf));
-            BincodeBuf bbuf(buf, sizeof(buf));
-            // struct.pack_into('<QcQ', b, 0, block['block_service_id'], b'e', block['block_id'])
-            bbuf.packScalar<uint64_t>(req.blockServiceId.u64);
-            bbuf.packScalar<char>('e');
-            bbuf.packScalar<uint64_t>(req.blockId);
-            if (cbcmac(bsIt->second, (uint8_t*)buf, sizeof(buf)) != req.certificate) {
-                return false;
-            }
-        }
-        // generate proof
-        {
-            char buf[32];
-            memset(buf, 0, sizeof(buf));
-            BincodeBuf bbuf(buf, sizeof(buf));
-            // struct.pack_into('<QcQ', b, 0, block['block_service_id'], b'E', block['block_id'])
-            bbuf.packScalar<uint64_t>(req.blockServiceId.u64);
-            bbuf.packScalar<char>('E');
-            bbuf.packScalar<uint64_t>(req.blockId);
-            proof.data = cbcmac(bsIt->second, (uint8_t*)buf, sizeof(buf));
-        }
-        return true;
     }
 };
 
@@ -755,11 +497,21 @@ void Registry::start(const RegistryOptions& options, LoopThreads& threads) {
     std::vector<FullRegistryInfo> cachedRegistries;
     _state->registryDB->registries(cachedRegistries);
 
-    auto registerer = std::make_unique<Registerer>(logger, xmon, options, _state->server->boundAddresses(), cachedRegistries);
-    auto registryLoop = std::make_unique<RegistryLoop>(logger, xmon, options, *registerer, *_state->server, *_state->logsDB, *_state->registryDB);
+    std::vector<RegistryReader*> readers;
+    for(uint8_t i = 0; i < options.numReaders; ++i) {
+        auto reader = std::make_unique<RegistryReader>(logger, xmon, options, *_state->registryDB, *_state->server);
+        readers.emplace_back(reader.get());
+        threads.emplace_back(LoopThread::Spawn(std::move(reader)));
+    }
 
-    threads.emplace_back(LoopThread::Spawn(std::move((registerer))));
-    threads.emplace_back(LoopThread::Spawn(std::move((registryLoop))));
+    auto registerer = std::make_unique<Registerer>(
+        logger, xmon, options, _state->server->boundAddresses(), cachedRegistries);
+    auto registryLoop = std::make_unique<RegistryLoop>(
+        logger, xmon, options, *registerer, *_state->server,
+        *_state->logsDB, *_state->registryDB, std::move(readers));
+
+    threads.emplace_back(LoopThread::Spawn(std::move(registerer)));
+    threads.emplace_back(LoopThread::Spawn(std::move(registryLoop)));
 }
 
 void Registry::close() {

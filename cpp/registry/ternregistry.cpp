@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <string>
 
+#include "CommonOptions.hpp"
 #include "Loop.hpp"
 #include "Registry.hpp"
 #include "Xmon.hpp"
@@ -66,6 +67,14 @@ static bool parseRegistryOptions(CommandLineArgs& args, RegistryOptions& options
             options.usingDynamicPorts = true;
             continue;
         }
+        if (arg == "-num-readers") {
+            options.numReaders = parseUint8(args.next());
+            if (options.numReaders == 0) {
+                fprintf(stderr, "-num-readers must be larger than 0\n");
+                return false;
+            }
+            continue;
+        }
         fprintf(stderr, "unknown argument %s\n", args.peekArg().c_str());
         return false;
     }
@@ -86,6 +95,8 @@ static void printRegistryOptionsUsage() {
     fprintf(stderr, "       Don't allow leader to implicitly change on heartbeat but require LeaderMoveReq.\n");
     fprintf(stderr, " -max-connections\n");
     fprintf(stderr, "       Maximum number of connections to serve at the same time. Default is 4000\n");
+    fprintf(stderr, " -num-readers\n");
+    fprintf(stderr, "       Number of reader threads to create. Default is 1\n");
     fprintf(stderr, " -min-auto-decom-interval\n");
     fprintf(stderr, "       Minimum time between auto-decomissions for same path-prefix. Default 1 hour\n");
     fprintf(stderr, " -alert-at-unavailable-failure-domains\n");

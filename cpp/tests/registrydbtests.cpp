@@ -5,7 +5,6 @@
 #include <iostream>
 #include <ostream>
 #include <resolv.h>
-#include <unordered_set>
 
 #include "Bincode.hpp"
 #include "Msgs.hpp"
@@ -730,8 +729,8 @@ TEST_CASE("DecommissionBlockService") {
     
     std::vector<LogsDBLogEntry> logEntries;
     std::vector<RegistryDBWriteResult> writeResults;
-    
-    // First register a block service
+   
+
     {
         auto& entry = logEntries.emplace_back();
         entry.idx = db->lastAppliedLogEntry() + 1;

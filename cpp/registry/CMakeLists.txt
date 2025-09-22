@@ -5,7 +5,8 @@
 include_directories(${ternfs_SOURCE_DIR}/core ${ternfs_SOURCE_DIR}/wyhash)
 
 add_library(registry Registry.hpp Registry.cpp RegistryDB.hpp RegistryDB.cpp 
-    RegistryDBData.hpp Registerer.hpp Registerer.cpp RegistryServer.hpp RegistryServer.cpp)
+    RegistryDBData.hpp Registerer.hpp Registerer.cpp RegistryServer.hpp RegistryServer.cpp
+    RegistryReader.hpp RegistryReader.cpp )
 target_link_libraries(registry PRIVATE core)
 
 add_executable(ternregistry ternregistry.cpp)
