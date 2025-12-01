@@ -2061,21 +2061,9 @@ public:
                 LOG_DEBUG(_env, "Updating replicas to %s %s %s %s %s", localReplicas[0], localReplicas[1], localReplicas[2], localReplicas[3], localReplicas[4]);
                 std::atomic_exchange(&_shared.replicas, std::make_shared<std::array<AddrsInfo, LogsDB::REPLICA_COUNT>>(localReplicas));
             }
-            if (unlikely(_shared.leadersAtOtherLocations->size() != leadersAtOtherLocations.size())) {
-                LOG_DEBUG(_env, "Updating leaders at other locations to %s", leadersAtOtherLocations);
-                std::atomic_exchange(&_shared.leadersAtOtherLocations, std::make_shared<std::vector<FullShardInfo>>(std::move(leadersAtOtherLocations)));
-            } else {
-                for (size_t i = 0; i < leadersAtOtherLocations.size(); ++i) {
-                    if (_shared.leadersAtOtherLocations->at(i).locationId != leadersAtOtherLocations[i].locationId ||
-                        _shared.leadersAtOtherLocations->at(i).id != leadersAtOtherLocations[i].id ||
-                        _shared.leadersAtOtherLocations->at(i).addrs != leadersAtOtherLocations[i].addrs)
-                    {
-                        LOG_DEBUG(_env, "Updating leaders at other locations to %s", leadersAtOtherLocations);
-                        std::atomic_exchange(&_shared.leadersAtOtherLocations, std::make_shared<std::vector<FullShardInfo>>(std::move(leadersAtOtherLocations)));
-                        break;
-                    }
-                }
-            }
+
+            LOG_DEBUG(_env, "Updating leaders at other locations to %s", leadersAtOtherLocations);
+            std::atomic_exchange(&_shared.leadersAtOtherLocations, std::make_shared<std::vector<FullShardInfo>>(std::move(leadersAtOtherLocations)));
         }
         _shared.isInitiated.store(true, std::memory_order_release);
         _env.clearAlert(_alert);
