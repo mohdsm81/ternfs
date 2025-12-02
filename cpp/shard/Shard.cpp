@@ -1144,7 +1144,7 @@ public:
                                 // before sending response
                                 auto now = ternNow();
                                 auto leadersAtOtherLocations = _shared.leadersAtOtherLocations;
-                                if (!leadersAtOtherLocations->empty()) {
+                                if ((!leadersAtOtherLocations->empty()) && resp.body.resp.kind() == ShardMessageKind::CREATE_DIRECTORY_INODE) {
 
                                     CrossRegionWaitInfo waitInfo;
                                     waitInfo.idx = shardEntry.idx;
