@@ -125,6 +125,9 @@ type blockServiceStats struct {
 	bytesChecked             uint64
 	blocksConverted          uint64
 	blockConversionDiscarded uint64
+	blockTooOldForWrite      uint64
+	badBlockCrc              uint64
+	badCertificate           uint64
 }
 type env struct {
 	bufPool        *bufpool.BufPool
@@ -338,10 +341,11 @@ func updateBlockServiceInfoCapacityForever(
 	}
 }
 
-func checkEraseCertificate(log *log.Logger, blockServiceId msgs.BlockServiceId, cipher cipher.Block, req *msgs.EraseBlockReq) error {
+func checkEraseCertificate(log *log.Logger, blockServiceId msgs.BlockServiceId, cipher cipher.Block, req *msgs.EraseBlockReq, stats *blockServiceStats) error {
 	expectedMac, good := certificate.CheckBlockEraseCertificate(blockServiceId, cipher, req)
 	if !good {
-		log.RaiseAlert("bad MAC, got %v, expected %v", req.Certificate, expectedMac)
+		log.ErrorNoAlert("bad MAC, got %v, expected %v", req.Certificate, expectedMac)
+		atomic.AddUint64(&stats.badCertificate, 1)
 		return msgs.BAD_CERTIFICATE
 	}
 	return nil
@@ -648,11 +652,11 @@ func checkBlock(log *log.Logger, env *env, blockServiceId msgs.BlockServiceId, b
 	return nil
 }
 
-func checkWriteCertificate(log *log.Logger, cipher cipher.Block, blockServiceId msgs.BlockServiceId, req *msgs.WriteBlockReq) error {
+func checkWriteCertificate(log *log.Logger, cipher cipher.Block, blockServiceId msgs.BlockServiceId, req *msgs.WriteBlockReq, stats *blockServiceStats) error {
 	expectedMac, good := certificate.CheckBlockWriteCertificate(cipher, blockServiceId, req)
 	if !good {
-		log.Debug("mac computed for %v %v %v %v", blockServiceId, req.BlockId, req.Crc, req.Size)
-		log.RaiseAlert("bad MAC, got %v, expected %v", req.Certificate, expectedMac)
+		log.ErrorNoAlert("bad MAC computed for %v %v %v %v, expected %v, got %v ", blockServiceId, req.BlockId, req.Crc, req.Size, expectedMac, req.Certificate)
+		atomic.AddUint64(&stats.badCertificate, 1)
 		return msgs.BAD_CERTIFICATE
 	}
 	return nil
@@ -734,6 +738,9 @@ func writeBlockInternal(
 	// We don't check CRC here, we fully check tmpFile after it has been written and synced
 	bufPtr, err := writeToBuf(log, env, reader.R, reader.N)
 	if err != nil {
+		if err == msgs.BAD_BLOCK_CRC {
+			atomic.AddUint64(&env.stats[blockServiceId].badBlockCrc, 1)
+		}
 		return err
 	}
 	defer env.bufPool.Put(bufPtr)
@@ -748,6 +755,9 @@ func writeBlockInternal(
 	err = verifyCrcFile(log, readBufPtr.Bytes(), tmpFile, int64(len(bufPtr.Bytes())), expectedCrc)
 	if err != nil {
 		log.ErrorNoAlert("failed writing block %v in blockservice %v with error : %v", blockId, blockServiceId, err)
+		if err == msgs.BAD_BLOCK_CRC {
+			atomic.AddUint64(&env.stats[blockServiceId].badBlockCrc, 1)
+		}
 		return err
 	}
 	err = moveFileAndSyncDir(tmpFile, filePath)
@@ -876,7 +886,8 @@ func handleRequestError(
 	}
 
 	// we always raise an alert since this is almost always bad news in the block service
-	if !errors.Is(err, syscall.ENOSPC) && err != msgs.BLOCK_SERVICE_NOT_FOUND && err != msgs.BLOCK_NOT_FOUND {
+	if !errors.Is(err, syscall.ENOSPC) && err != msgs.BLOCK_SERVICE_NOT_FOUND && err != msgs.BLOCK_NOT_FOUND &&
+		err != msgs.BAD_BLOCK_CRC && err != msgs.BLOCK_TOO_OLD_FOR_WRITE && err != msgs.BAD_CERTIFICATE {
 		log.RaiseAlertStack("", 1, "got unexpected error %v from %v for req kind %v, block service %v, previous error %v", err, conn.RemoteAddr(), req, blockServiceId, *lastError)
 	}
 
@@ -999,7 +1010,7 @@ func handleSingleRequest(
 	atomic.AddUint64(&blockService.requests, 1)
 	switch whichReq := req.(type) {
 	case *msgs.EraseBlockReq:
-		if err := checkEraseCertificate(log, blockServiceId, blockService.cipher, whichReq); err != nil {
+		if err := checkEraseCertificate(log, blockServiceId, blockService.cipher, whichReq, env.stats[blockServiceId]); err != nil {
 			return handleRequestError(log, blockServices, deadBlockServices, conn, lastError, blockServiceId, kind, err)
 		}
 		cutoffTime := msgs.TernTime(uint64(whichReq.BlockId)).Time().Add(futureCutoff)
@@ -1038,9 +1049,10 @@ func handleSingleRequest(
 		}
 		if now.After(futureCutoffTime) {
 			log.ErrorNoAlert("block %v is too old to be written (now=%v, futureCutoffTime=%v)", whichReq.BlockId, now, futureCutoffTime)
+			atomic.AddUint64(&env.stats[blockServiceId].blockTooOldForWrite,1)
 			return handleRequestError(log, blockServices, deadBlockServices, conn, lastError, blockServiceId, kind, msgs.BLOCK_TOO_OLD_FOR_WRITE)
 		}
-		if err := checkWriteCertificate(log, blockService.cipher, blockServiceId, whichReq); err != nil {
+		if err := checkWriteCertificate(log, blockService.cipher, blockServiceId, whichReq, env.stats[blockServiceId]); err != nil {
 			return handleRequestError(log, blockServices, deadBlockServices, conn, lastError, blockServiceId, kind, err)
 		}
 		if whichReq.Size > MAX_OBJECT_SIZE {
@@ -1268,6 +1280,16 @@ func sendMetrics(l *log.Logger, env *env, influxDB *log.InfluxDB, blockServices 
 			metrics.FieldU64("blocks", bsStats.blocksChecked)
 			metrics.FieldU64("bytes", bsStats.bytesChecked)
 			metrics.Timestamp(now)
+
+			metrics.Measurement("eggsfs_blocks_errors")
+			metrics.Tag("blockservice", bsId.String())
+			metrics.Tag("failuredomain", failureDomainEscaped)
+			metrics.Tag("pathprefix", env.pathPrefix)
+			metrics.FieldU64("bad_block_crc", bsStats.badBlockCrc)
+			metrics.FieldU64("block_too_old", bsStats.blockTooOldForWrite)
+			metrics.FieldU64("bad_certificate", bsStats.badCertificate)
+			metrics.Timestamp(now)
+
 		}
 		for bsId, bsInfo := range blockServices {
 			metrics.Measurement("eggsfs_blocks_storage")
