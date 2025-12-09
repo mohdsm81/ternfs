@@ -466,6 +466,9 @@ static bool block_socket_cleanup(
             block_socket_log_req_completion(socket, req);
             queue_work(ternfs_wq, &req->complete_work);
         }
+        // we entered cleanup holding reference which is release after the if
+        // we also need to release the refence held by hash table
+        block_socket_put(socket);
     }
     atomic_set(&socket->write_work_active, 0);
     block_socket_put(socket);
