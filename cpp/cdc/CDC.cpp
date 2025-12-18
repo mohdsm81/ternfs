@@ -899,6 +899,7 @@ struct CDCRegisterer : PeriodicLoop {
     const uint8_t _location;
     const bool _noReplication;
     const bool _avoidBeingLeader;
+    const bool _initialStart;
     const std::string _registryHost;
     const uint16_t _registryPort;
     XmonNCAlert _alert;
@@ -910,6 +911,7 @@ public:
         _location(options.logsDBOptions.location),
         _noReplication(options.logsDBOptions.noReplication),
         _avoidBeingLeader(options.logsDBOptions.avoidBeingLeader),
+        _initialStart(options.logsDBOptions.initialStart),
         _registryHost(options.registryClientOptions.host),
         _registryPort(options.registryClientOptions.port),
         _alert(10_sec)
@@ -944,7 +946,7 @@ public:
                 return false;
             }
             auto oldReplicas = _shared.getReplicas();
-            if (unlikely(!oldReplicas)) {
+            if (unlikely(_initialStart && !oldReplicas)) {
                 size_t emptyReplicas{0};
                 for (auto& replica : replicas) {
                     if (replica.addrs[0].port == 0) {

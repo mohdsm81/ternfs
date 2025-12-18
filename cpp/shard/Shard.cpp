@@ -2147,7 +2147,7 @@ public:
                 return false;
             }
             auto oldReplicas = _shared.getReplicas();
-            if (unlikely(!oldReplicas)) {
+            if (unlikely(_shared.options.logsDBOptions.initialStart && !oldReplicas)) {
                 size_t emptyReplicas{0};
                 for (auto& replica : localReplicas) {
                     if (replica.addrs[0].port == 0) {

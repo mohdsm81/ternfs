@@ -244,6 +244,7 @@ struct LogsDBOptions {
     std::string dbDir;
     bool avoidBeingLeader = true;
     bool noReplication = false;
+    bool initialStart = false;
     ReplicaId replicaId = ReplicaId::invalid();
     uint8_t location = 0;
 };
@@ -272,6 +273,11 @@ static inline bool parseLogsDBOptions(CommandLineArgs& args, LogsDBOptions& opti
         options.location = parseUint8(args.next());
         return true;
     }
+    if (arg == "-logsdb-initial-start") {
+        args.next();
+        options.initialStart = true;
+        return true;
+    }
     return false;
 }
 
@@ -284,6 +290,8 @@ static inline void printLogsDBOptionsUsage() {
     fprintf(stderr, " -logsdb-no-replication\n");
     fprintf(stderr, "    	Don't wait for acks from other replicas when becoming leader or replicating.\n");
     fprintf(stderr, "    	Can only be set if -logsdb-leader is also set. Default is false\n");
+    fprintf(stderr, " -logsdb-initial-start\n");
+    fprintf(stderr, "    	Indicates quorum assembly. Wait for all replicas to have know address.\n");
     fprintf(stderr, " -replica\n");
     fprintf(stderr, "    	Which replica are we running as [0-4]\n");
     fprintf(stderr, " -location\n");

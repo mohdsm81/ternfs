@@ -1314,6 +1314,7 @@ func main() {
 				cdcOpts.LogsDBFlags = []string{"-logsdb-leader"}
 			}
 		}
+		cdcOpts.LogsDBFlags = append(cdcOpts.LogsDBFlags, "-logsdb-initial-start")
 		if *buildType == "valgrind" {
 			// apparently 100ms is too little when running with valgrind
 			cdcOpts.ShardTimeout = time.Millisecond * 500
@@ -1347,6 +1348,7 @@ func main() {
 					shopts.LogsDBFlags = []string{"-logsdb-leader"}
 				}
 			}
+			shopts.LogsDBFlags = append(shopts.LogsDBFlags, "-logsdb-initial-start")
 			procs.StartShard(l, *repoDir, &shopts)
 		}
 	}
