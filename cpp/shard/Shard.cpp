@@ -796,7 +796,7 @@ private:
 
     // Cross-region wait tracking for CDC writes
     static constexpr Duration CROSS_REGION_WAIT_RETRY_INTERVAL = 200_ms;
-    static constexpr Duration SHARD_DOWN_THRESHOLD = 10_mins;
+    Duration _shardDownThreshold;
     std::unordered_map<uint64_t, CrossRegionWaitInfo> _crossRegionWaitResponses; // wait req id -> info
     std::unordered_map<uint64_t, uint64_t> _waitReqIdToResponseId;
 
@@ -830,6 +830,7 @@ public:
         _knownLastReleased(_logsDB.getLastReleased()),
         _nextTimeout(0),
         _catchupWindowIndex(0),
+        _shardDownThreshold(shared.options.regionStalenessThreshold),
         _requestIdCounter(RandomGenerator().generate64())
     {
         expandKey(ShardKey, _expandedShardKey);
@@ -965,7 +966,7 @@ public:
                         locationFound = true;
                         locationAddrs = leader.addrs;
                         auto timeSinceLastSeen = now - leader.lastSeen;
-                        if (timeSinceLastSeen >= SHARD_DOWN_THRESHOLD) {
+                        if (timeSinceLastSeen >= _shardDownThreshold) {
                             locationDown = true;
                             LOG_INFO(_env, "Location %s detected as down (no response for %s), removing from wait list for LogIdx %s",
                                     locationId, timeSinceLastSeen, waitInfo.idx.u64);
@@ -1182,7 +1183,7 @@ public:
                                     for (const auto& leader : *leadersAtOtherLocations) {
                                          if (leader.locationId == 0) continue;
                                         auto timeSinceLastSeen = now - leader.lastSeen;
-                                        if (timeSinceLastSeen >= SHARD_DOWN_THRESHOLD) {
+                                        if (timeSinceLastSeen >= _shardDownThreshold) {
                                             LOG_INFO(_env, "Skipping wait for secondary leader at location %s (down for %s)",
                                                     leader.locationId, timeSinceLastSeen);
                                             continue;
@@ -1594,7 +1595,7 @@ public:
                 for (const auto& leader : *leadersAtOtherLocations) {
                         if (leader.locationId == 0) continue;
                     auto timeSinceLastSeen = now - leader.lastSeen;
-                    if (timeSinceLastSeen >= SHARD_DOWN_THRESHOLD) {
+                    if (timeSinceLastSeen >= _shardDownThreshold) {
                         LOG_INFO(_env, "Skipping wait for secondary leader at location %s (down for %s)",
                                 leader.locationId, timeSinceLastSeen);
                         continue;

@@ -20,6 +20,7 @@ struct ShardOptions {
     bool shardIdSet = false;
 
     uint16_t numReaders = 1;
+    Duration regionStalenessThreshold = 10_mins;
 
     // implicit options
     bool isLeader() const { return !logsDBOptions.avoidBeingLeader; }

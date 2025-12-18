@@ -40,6 +40,10 @@ static bool parseShardOptions(CommandLineArgs& args, ShardOptions& options) {
             }
             continue;
         }
+        if (arg == "-region-staleness-threshold") {
+            options.regionStalenessThreshold = parseDuration(args.next());
+            continue;
+        }
         fprintf(stderr, "unknown argument %s\n", args.peekArg().c_str());
         return false;
     }
@@ -54,6 +58,8 @@ static void printShardOptionsUsage() {
     printLogsDBOptionsUsage();
     printServerOptionsUsage();
     fprintf(stderr, "ShardOptions:\n");
+    fprintf(stderr, " -region-staleness-threshold\n");
+    fprintf(stderr, "    	Duration after which a cross-region shard is considered down. Default: 10m\n");
     fprintf(stderr, " -num-readers\n");
     fprintf(stderr, "    	Number of reader threads. Default: 1\n");
     fprintf(stderr, " -shard\n");
