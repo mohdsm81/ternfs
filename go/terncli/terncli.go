@@ -982,6 +982,7 @@ func main() {
 			storage  msgs.StorageClass
 		}
 		groupTotals := make(map[locClassKey]struct{ current uint64; snapshot uint64 })
+		groupTotalsMutex := sync.Mutex{}
 		histogram := timing.NewHistogram(256, 255, 1.15) // max: ~900PB
 		histoLogicalSizeBins := make([]uint64, 256)
 		histoPhysicalSizeBins := make([]uint64, 256)
@@ -1057,6 +1058,7 @@ func main() {
 							for idx, loc := range locBody.Locations {
 								physical := uint64(loc.CellSize) * uint64(loc.Parity.Blocks()) * uint64(loc.Stripes)
 								key := locClassKey{location: loc.LocationId, storage: loc.StorageClass}
+								groupTotalsMutex.Lock()
 								entry := groupTotals[key]
 								if current {
 									entry.current += physical
@@ -1064,6 +1066,7 @@ func main() {
 									entry.snapshot += physical
 								}
 								groupTotals[key] = entry
+								groupTotalsMutex.Unlock()
 								if idx == 0 {
 									physicalSize += physical
 								}
