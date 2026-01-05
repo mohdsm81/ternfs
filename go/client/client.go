@@ -961,6 +961,7 @@ type Client struct {
 	registryAddress      string
 	addrsRefreshClose    chan (struct{})
 	registryConn         *RegistryConn
+	clientReady		     atomic.Bool
 
 	fetchBlockServices          bool
 	blockServicesLock           *sync.RWMutex
@@ -1037,6 +1038,7 @@ func (c *Client) refreshAddrs() error {
 	if errMsg != "" {
 		return fmt.Errorf("could not refresh addresses: %v", errMsg)
 	}
+	c.clientReady.Store(true)
 	log.Info("Successfully refreshed shard/CDC addresses from registry")
 	return nil
 }
@@ -1063,9 +1065,16 @@ func NewClient(
 		defer addrsRefreshTicker.Stop()
 
 		for {
+			wasReady := c.clientReady.Load()
 			if err := c.refreshAddrs(); err != nil {
-					log.RaiseNC(addressRefreshAlert, "%v", err)
+				log.RaiseNC(addressRefreshAlert, "%v", err)
+				if !wasReady {
+					addrsRefreshTicker.Reset(10*time.Second)
+				}
 			} else {
+				if !wasReady {
+					addrsRefreshTicker.Reset(time.Minute)
+				}
 				log.ClearNC(addressRefreshAlert)
 			}
 			select {
@@ -1220,6 +1229,10 @@ func (c *Client) SetAddrs(
 		&c.cdcRawAddr[1],
 		uint64(cdcAddrs.Addr2.Port)<<32|uint64(cdcAddrs.Addr2.Addrs[0])<<24|uint64(cdcAddrs.Addr2.Addrs[1])<<16|uint64(cdcAddrs.Addr2.Addrs[2])<<8|uint64(cdcAddrs.Addr2.Addrs[3]),
 	)
+}
+
+func (c *Client) IsReady() bool {
+	return c.clientReady.Load()
 }
 
 func (c *Client) Close() {

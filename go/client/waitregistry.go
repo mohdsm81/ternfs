@@ -65,9 +65,16 @@ func WaitForClient(log *log.Logger, registryAddress string, timeout time.Duratio
 		if t.Sub(t0) > timeout {
 			panic(fmt.Errorf("giving up waiting for client, last error: %w", err))
 		}
-		client, err = NewClient(log, nil, registryAddress, msgs.AddrsInfo{})
-		if err != nil {
-			log.Info("getting registry client failed, waiting: %v", err)
+		if client == nil {
+			client, err = NewClient(log, nil, registryAddress, msgs.AddrsInfo{})
+			if err != nil {
+				log.Info("getting registry client failed, waiting: %v", err)
+				time.Sleep(time.Second)
+				continue
+			}
+		}
+		if (!client.IsReady()) {
+			log.Info("client not ready, waiting")
 			time.Sleep(time.Second)
 			continue
 		}
