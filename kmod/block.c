@@ -393,7 +393,7 @@ static void block_socket_connect_sk_state_change(struct sock* sk) {
     saved_state_change(sk);
 }
 
-inline bool block_socket_check_timeout(struct block_socket* socket, u64 now, u64 timeout_jiffies, bool set_error) {
+inline bool block_socket_check_timeout(struct block_socket* socket, u64 now, u64 timeout_jiffies) {
     ternfs_debug("socket(%p) %pI4:%d refcount %d check timeout triggered", socket, &socket->addr.sin_addr, ntohs(socket->addr.sin_port), atomic_read(&socket->refcount));
     // if something is locked activity in progress, nothing to do
     if (!spin_trylock_bh(&socket->list_lock)) {
@@ -401,7 +401,7 @@ inline bool block_socket_check_timeout(struct block_socket* socket, u64 now, u64
     }
     u64 last_activity = max(socket->last_read_activity, socket->last_write_activity);
     bool timed_out = now - min(now, last_activity) > timeout_jiffies;
-    if (set_error && timed_out) {
+    if (timed_out) {
         atomic_cmpxchg(&socket->err, 0, -ETIMEDOUT);
     }
     spin_unlock_bh(&socket->list_lock);
@@ -416,7 +416,7 @@ static void timeout_sockets(struct block_ops* ops) {
 
     rcu_read_lock();
     hash_for_each_rcu(ops->sockets, bucket, sock, hnode) {
-        if (block_socket_check_timeout(sock, now, *ops->timeout_jiffies, false)) {
+        if (block_socket_check_timeout(sock, now, *ops->timeout_jiffies)) {
             // We can't clean up here as timing out involves removing from hash and needs
             // synchronization through rcu_synchronize
             block_socket_hold(sock);
@@ -430,13 +430,9 @@ static void timeout_sockets(struct block_ops* ops) {
 // returns true if socket was cleaned up or partly cleaned up
 static bool block_socket_cleanup(
     struct block_ops* ops,
-    struct block_socket* socket,
-    bool check_timeout
+    struct block_socket* socket
 ) {
     ternfs_debug("socket(%p) %pI4:%d refcount %d cleanup triggered", socket, &socket->addr.sin_addr, ntohs(socket->addr.sin_port), atomic_read(&socket->refcount));
-    if (check_timeout) {
-        block_socket_check_timeout(socket, get_jiffies_64(), *ops->timeout_jiffies, true);
-    }
     int err = atomic_read(&socket->err);
 
     if (!err) {
@@ -511,7 +507,7 @@ static void block_socket_write_work(
         return;
     }
 
-    if (block_socket_cleanup(ops, socket, false)) {
+    if (block_socket_cleanup(ops, socket)) {
         return;
     }
 
