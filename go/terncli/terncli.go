@@ -767,10 +767,30 @@ func main() {
 	blockserviceFlagsSet := blockserviceFlagsCmd.String("set", "", "Flag to set")
 	blockserviceFlagsUnset := blockserviceFlagsCmd.String("unset", "", "Flag to unset")
 	blockserviceFlagsRun := func() {
-		if *blockserviceFlagsSet != "" && *blockserviceFlagsUnset != "" {
-			fmt.Fprintf(os.Stderr, "cannot use -set and -unset at the same time\n")
+		var flagsToSet, flagsToClear msgs.BlockServiceFlags
+		var err error
+		if *blockserviceFlagsSet != "" {
+			flagsToSet, err = msgs.BlockServiceFlagsFromUnion(*blockserviceFlagsSet)
+			if err != nil {
+				panic(err)
+			}
+		}
+		if *blockserviceFlagsUnset != "" {
+			flagsToClear, err = msgs.BlockServiceFlagsFromUnion(*blockserviceFlagsUnset)
+			if err != nil {
+				panic(err)
+			}
+		}
+		if flagsToClear & msgs.TERNFS_BLOCK_SERVICE_DECOMMISSIONED != msgs.TERNFS_BLOCK_SERVICE_EMPTY {
+			fmt.Fprintf(os.Stderr, "cannot unset DECOMMISSIONED flag\n")
 			os.Exit(2)
 		}
+		if flagsToSet & flagsToClear != msgs.TERNFS_BLOCK_SERVICE_EMPTY {
+			fmt.Fprintf(os.Stderr, "there can not be intersection between -set and -unset\n")
+			os.Exit(2)
+		}
+		flag := flagsToSet
+		mask := flagsToSet | flagsToClear
 		filterCount := 0
 		if *blockserviceFlagsId != 0 {
 			filterCount++
@@ -797,6 +817,9 @@ func main() {
 			}
 			blockServices := blockServicesResp.(*msgs.AllBlockServicesDeprecatedResp)
 			for _, bs := range blockServices.BlockServices {
+				if bs.Flags&msgs.TERNFS_BLOCK_SERVICE_DECOMMISSIONED != 0 {
+					continue
+				}
 				if bs.FailureDomain.String() == *blockserviceFlagsFailureDomain {
 					blockServiceIds = append(blockServiceIds, bs.Id)
 				}
@@ -812,31 +835,14 @@ func main() {
 				}
 			}
 		}
-		var flag msgs.BlockServiceFlags
-		var mask uint8
-		if *blockserviceFlagsSet != "" {
-			var err error
-			flag, err = msgs.BlockServiceFlagFromName(*blockserviceFlagsSet)
-			if err != nil {
-				panic(err)
-			}
-			mask = uint8(flag)
-		}
-		if *blockserviceFlagsUnset != "" {
-			flagMask, err := msgs.BlockServiceFlagFromName(*blockserviceFlagsUnset)
-			if err != nil {
-				panic(err)
-			}
-			mask = uint8(flagMask)
-		}
 		conn := client.MakeRegistryConn(l, nil, *registryAddress, 1)
 		defer conn.Close()
 		for _, bsId := range blockServiceIds {
-			l.Info("setting flags %v with mask %v for block service %v", flag, msgs.BlockServiceFlags(mask), bsId)
+			l.Info("setting flags %v with mask %v for block service %v", flag, mask, bsId)
 			_, err := conn.Request(&msgs.SetBlockServiceFlagsReq{
 				Id:        bsId,
 				Flags:     flag,
-				FlagsMask: mask,
+				FlagsMask: uint8(mask),
 			})
 			if err != nil {
 				panic(err)
