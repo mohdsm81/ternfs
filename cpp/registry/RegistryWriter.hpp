@@ -38,6 +38,10 @@ public:
         return _registryRequestsQueue.push(being, end);
     }
 
+    uint32_t pushBlockServiceStateRequests(std::vector<RegistryRequest>& requests) {
+        return _blockServiceStateRequestsQueue.push(requests);
+    }
+
     void sendStop() override;
 
     virtual void step() override;
@@ -52,6 +56,7 @@ private:
     SPSC<LogsDBRequest, true> _logsDBRequestsQueue;
     SPSC<LogsDBResponse, true> _logsDBResponsesQueue;
     SPSC<RegistryRequest, true> _registryRequestsQueue;
+    SPSC<RegistryRequest, true> _blockServiceStateRequestsQueue;
 
     // Buffers for processing
     std::vector<LogsDBRequest> _logsDBRequests;

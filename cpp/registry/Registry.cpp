@@ -28,6 +28,7 @@
 #include "RegistryReader.hpp"
 #include "RegistryServer.hpp"
 #include "RegistryWriter.hpp"
+#include "BlockServiceFileTracker.hpp"
 
 #include "SharedRocksDB.hpp"
 #include "Time.hpp"
@@ -71,7 +72,7 @@ public:
     RegistryLoop(
         Logger &logger, std::shared_ptr<XmonAgent> xmon, const RegistryOptions& options,
         Registerer& registerer, RegistryServer& server, LogsDB& logsDB, RegistryDB& registryDB,
-        std::vector<RegistryReader*> readers, RegistryWriter& writer) :
+        std::vector<RegistryReader*> readers, RegistryWriter& writer, BlockServiceFileTracker& tracker) :
         Loop(logger, xmon, "server"),
         _options(options),
         _registerer(registerer),
@@ -79,6 +80,7 @@ public:
         _logsDB(logsDB),
         _registryDB(registryDB),
         _writer(writer),
+        _tracker(tracker),
         _replicas({}),
         _replicaFinishedBootstrap({}),
         _boostrapFinished(false),
@@ -95,6 +97,8 @@ public:
 
         auto now = ternNow();
 
+        _tracker.pushShardResponses(_server.receivedShardResponses());
+        _server.receivedShardResponses().clear();
 
         _writer.pushLogsDBResponses(_server.receivedLogsDBResponses());
         _server.receivedLogsDBResponses().clear();
@@ -264,7 +268,8 @@ public:
             case RegistryMessageKind::CLEAR_SHARD_INFO:
             case RegistryMessageKind::MOVE_CDC_LEADER:
             case RegistryMessageKind::CLEAR_CDC_INFO:
-            case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH: {
+            case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
+            case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES: {
                 _writeRequests.emplace_back(std::move(req));
                 break;
             }
@@ -309,6 +314,7 @@ private:
     LogsDB& _logsDB;
     RegistryDB& _registryDB;
     RegistryWriter& _writer;
+    BlockServiceFileTracker& _tracker;
 
     std::array<AddrsInfo, LogsDB::REPLICA_COUNT> _replicas;
     std::array<bool, LogsDB::REPLICA_COUNT> _replicaFinishedBootstrap;
@@ -451,12 +457,16 @@ void Registry::start(const RegistryOptions& options, LoopThreads& threads) {
     auto registerer = std::make_unique<Registerer>(
         logger, xmon, options, _state->server->boundAddresses(), cachedRegistries);
 
+    auto tracker = std::make_unique<BlockServiceFileTracker>(
+        logger, xmon, options, *_state->registryDB, *_state->server, *writer);
+
     auto registryLoop = std::make_unique<RegistryLoop>(
         logger, xmon, options, *registerer, *_state->server,
-        *_state->logsDB, *_state->registryDB, std::move(readers), *writer);
+        *_state->logsDB, *_state->registryDB, std::move(readers), *writer, *tracker);
 
     threads.emplace_back(LoopThread::Spawn(std::move(registerer)));
     threads.emplace_back(LoopThread::Spawn(std::move(writer)));
+    threads.emplace_back(LoopThread::Spawn(std::move(tracker)));
     threads.emplace_back(LoopThread::Spawn(std::move(registryLoop)));
 }
 

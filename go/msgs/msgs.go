@@ -2162,6 +2162,13 @@ type FullBlockServiceInfo struct {
 	Path           string
 }
 
+type SetBlockServiceHasFilesReq struct {
+	Id       BlockServiceId
+	HasFiles bool
+}
+
+type SetBlockServiceHasFilesResp struct{}
+
 type RegisterBlockServicesReq struct {
 	BlockServices []RegisterBlockServiceInfo
 }

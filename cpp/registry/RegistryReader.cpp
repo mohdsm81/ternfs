@@ -127,7 +127,7 @@ void RegistryReader::step() {
                  registryResp.proof = proof;
             } else {
                 resp.resp.setError() = TernError::INTERNAL_ERROR;
-            }    
+            }
             break;
         }
         case RegistryMessageKind::ALL_BLOCK_SERVICES_DEPRECATED: {

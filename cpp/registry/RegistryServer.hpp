@@ -6,13 +6,15 @@
 
 #include "LogsDB.hpp"
 #include "MultiplexedChannel.hpp"
+#include "Protocol.hpp"
 #include "Random.hpp"
 #include "RegistryCommon.hpp"
 #include "RegistryKey.hpp"
 
-static constexpr std::array<uint32_t, 2> RegistryProtocols = {
+static constexpr std::array RegistryProtocols = {
     LOG_REQ_PROTOCOL_VERSION,
     LOG_RESP_PROTOCOL_VERSION,
+    SHARD_RESP_PROTOCOL_VERSION,
 };
 
 using RegistryChannel = MultiplexedChannel<RegistryProtocols.size(), RegistryProtocols>;
@@ -29,6 +31,11 @@ struct RegistryResponse {
     RegistryRespContainer resp;
 };
 
+struct ShardResponse {
+    uint64_t requestId;
+    ShardRespContainer resp;
+};
+
 
 
 class RegistryServer {
@@ -39,8 +46,8 @@ public:
         _env(env),
         _socks({UDPSocketPair(_env, _options.addrs)}),
         _boundAddresses(_socks[0].addr()),
-        _lastRequestId(0),
-        _sender(UDPSenderConfig{.maxMsgSize = MAX_UDP_MTU}),        
+        _lastRequestId(1),
+        _sender(UDPSenderConfig{.maxMsgSize = MAX_UDP_MTU}),
         _packetDropRand(ternNow().ns),
         _outgoingPacketDropProbability(_options.simulateOutgoingPacketDrop)
     {
@@ -65,7 +72,10 @@ public:
     inline std::vector<LogsDBResponse>& receivedLogsDBResponses() { return _logsDBResponses; }
     inline std::vector<RegistryRequest>& receivedRegistryRequests() { return _receivedRequests; }
 
+    inline std::vector<ShardResponse>& receivedShardResponses() { return _shardResponses; }
+
     void sendLogsDBMessages(std::vector<LogsDBRequest *>& requests, std::vector<LogsDBResponse>& responses);
+    void sendShardRequests(const std::vector<std::pair<AddrsInfo, ShardReqMsg>>& requests);
     void sendRegistryResponses(std::vector<RegistryResponse>& responses);
 
 private:
@@ -95,21 +105,23 @@ private:
     };
     std::mutex _clients_req_mutex;
     std::unordered_map<int, Client> _clients;
-    
+
     uint64_t _lastRequestId;
- 
+
     std::unordered_map<uint64_t, int> _inFlightRequests; // request to fd mapping
     std::vector<RegistryRequest> _receivedRequests;
 
+    std::vector<ShardResponse> _shardResponses;
 
     std::shared_ptr<std::array<AddrsInfo, LogsDB::REPLICA_COUNT>> _replicaInfo;
-    
+
     // log entries buffers
     std::vector<LogsDBRequest> _logsDBRequests;   // requests from other replicas
     std::vector<LogsDBResponse> _logsDBResponses; // responses from other replicas
 
     // outgoing network
     UDPSender _sender;
+    std::mutex _senderMutex;
     RandomGenerator _packetDropRand;
     uint64_t _outgoingPacketDropProbability; // probability * 10,000
 
@@ -123,6 +135,7 @@ private:
 
     void _handleLogsDBResponse(UDPMessage &msg);
     void _handleLogsDBRequest(UDPMessage &msg);
+    void _handleShardResponse(UDPMessage &msg);
 
     void _sendResponse(int fd, RegistryRespContainer &resp);
 

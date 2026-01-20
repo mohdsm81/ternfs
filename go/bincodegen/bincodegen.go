@@ -2026,6 +2026,11 @@ func main() {
 			reflect.TypeOf(msgs.UpdateBlockServicePathReq{}),
 			reflect.TypeOf(msgs.UpdateBlockServicePathResp{}),
 		},
+		{
+			0x26,
+			reflect.TypeOf(msgs.SetBlockServiceHasFilesReq{}),
+			reflect.TypeOf(msgs.SetBlockServiceHasFilesResp{}),
+		},
 	}...)
 
 	kernelBlocksReqResps := []reqRespType{

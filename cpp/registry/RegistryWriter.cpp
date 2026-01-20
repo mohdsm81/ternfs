@@ -21,7 +21,8 @@ RegistryWriter::RegistryWriter(Logger &logger, std::shared_ptr<XmonAgent> xmon, 
     _logsDB(logsDB),
     _logsDBRequestsQueue(REGISTRY_WRITER_QUEUE_SIZE, _waiter),
     _logsDBResponsesQueue(REGISTRY_WRITER_QUEUE_SIZE, _waiter),
-    _registryRequestsQueue(REGISTRY_WRITER_QUEUE_SIZE, _waiter)
+    _registryRequestsQueue(REGISTRY_WRITER_QUEUE_SIZE, _waiter),
+    _blockServiceStateRequestsQueue(REGISTRY_WRITER_QUEUE_SIZE, _waiter)
 {
 
 }
@@ -53,6 +54,7 @@ void RegistryWriter::step() {
 
     remainingPullBudget -= _logsDBResponsesQueue.pull(_logsDBResponses, remainingPullBudget);
     remainingPullBudget -= _logsDBRequestsQueue.pull(_logsDBRequests, remainingPullBudget);
+    remainingPullBudget -= _blockServiceStateRequestsQueue.pull(_registryRequests, remainingPullBudget);
     remainingPullBudget -= _registryRequestsQueue.pull(_registryRequests, remainingPullBudget);
 
     _logsDB.processIncomingMessages(_logsDBRequests, _logsDBResponses);
@@ -71,6 +73,9 @@ void RegistryWriter::step() {
                 auto entryIdx = _entriesRequestIds[requestIdx];
                 auto requestId = _registryRequests[requestIdx].requestId;
                 ++requestIdx;
+                if (requestId == 0) {
+                    continue;
+                }
                 if (entry.idx == 0) {
                     LOG_DEBUG(_env, "could not append entry for request %s", requestId);
                     // empty response drops request

@@ -63,11 +63,11 @@ bool RegistryServer::init() {
 bool RegistryServer::receiveMessages(Duration timeout){
     ALWAYS_ASSERT(_receivedRequests.empty());
     ALWAYS_ASSERT(_logsDBRequests.empty());
-    ALWAYS_ASSERT(_logsDBResponses.empty());    
+    ALWAYS_ASSERT(_logsDBResponses.empty());
 
     int numEvents = Loop::epollWait(_epollFd, &_events[0], _events.size(), timeout);
     LOG_TRACE(_env, "epoll returned %s events", numEvents);
-    
+
     if (numEvents == -1) {
         if (errno != EINTR) {
             LOG_ERROR(_env, "epoll_wait error: %s", strerror(errno));
@@ -80,7 +80,7 @@ bool RegistryServer::receiveMessages(Duration timeout){
         std::lock_guard<std::mutex> _(_clients_req_mutex);
         for (int i = 0; i < numEvents; ++i) {
             if (_events[i].data.fd == _sockFds[0]) {
-                _acceptConnection(_sockFds[0]); 
+                _acceptConnection(_sockFds[0]);
             } else if (_events[i].data.fd == _sockFds[1]) {
                 _acceptConnection(_sockFds[1]);
             } else if (_socks[0].containsFd(_events[i].data.fd)) {
@@ -104,11 +104,15 @@ bool RegistryServer::receiveMessages(Duration timeout){
         for (auto &msg : _channel.protocolMessages(LOG_REQ_PROTOCOL_VERSION)) {
             _handleLogsDBRequest(msg);
         }
+        for (auto& msg : _channel.protocolMessages(SHARD_RESP_PROTOCOL_VERSION)) {
+            _handleShardResponse(msg);
+        }
     }
     return true;
 }
 
 void RegistryServer::sendLogsDBMessages(std::vector<LogsDBRequest *>& requests, std::vector<LogsDBResponse>& responses) {
+    std::lock_guard<std::mutex> _(_senderMutex);
     for (auto request : requests) {
         _packLogsDBRequest(*request);
     }
@@ -117,6 +121,25 @@ void RegistryServer::sendLogsDBMessages(std::vector<LogsDBRequest *>& requests, 
     }
     requests.clear();
     responses.clear();
+    _sender.sendMessages(_env, _socks[0]);
+}
+
+void RegistryServer::sendShardRequests(const std::vector<std::pair<AddrsInfo, ShardReqMsg>>& requests) {
+    std::lock_guard<std::mutex> _(_senderMutex);
+    for (const auto& [addrInfo, msg] : requests) {
+        bool dropArtificially = _packetDropRand.generate64() % 10'000 < _outgoingPacketDropProbability;
+        if (unlikely(dropArtificially)) {
+            LOG_TRACE(_env, "artificially dropping shard request %s", msg.id);
+            continue;
+        }
+
+        _sender.prepareOutgoingMessage(_env, _socks[0].addr(), addrInfo,
+            [&msg](BincodeBuf &buf) {
+                msg.pack(buf);
+        });
+
+        LOG_TRACE(_env, "will send shard request for req id %s kind %s to %s", msg.id, msg.body.kind(), addrInfo);
+    }
     _sender.sendMessages(_env, _socks[0]);
 }
 
@@ -175,7 +198,6 @@ void RegistryServer::_acceptConnection(int fd) {
     }
 }
 
-  
 void RegistryServer::_readClient(int fd) {
     auto it = _clients.find(fd);
     ALWAYS_ASSERT(it != _clients.end());
@@ -187,7 +209,7 @@ void RegistryServer::_readClient(int fd) {
 
     while (bytesToRead > 0 &&
         (bytesRead = read(fd, &client.readBuffer[client.messageBytesProcessed], bytesToRead)) > 0) {
-        
+
         LOG_TRACE(_env, "Received %s bytes from client", bytesRead);
         bytesToRead -= bytesRead;
         client.messageBytesProcessed += bytesRead;
@@ -212,7 +234,7 @@ void RegistryServer::_readClient(int fd) {
             LOG_TRACE(_env, "Unpacking ReadBuffer size %s", client.readBuffer.size());
             BincodeBuf buf{&client.readBuffer[MESSAGE_HEADER_SIZE], client.readBuffer.size() - MESSAGE_HEADER_SIZE};
             auto &req = _receivedRequests.emplace_back();
-            
+
             try {
                 LOG_TRACE(_env, "buf len %s", buf.remaining());
                 req.req.unpack(buf);
@@ -321,6 +343,23 @@ void RegistryServer::_handleLogsDBRequest(UDPMessage &msg) {
     LOG_TRACE(_env, "Received request %s with requests id %s from replica id %s", reqMsg->body.kind(), reqMsg->id, replicaId);
 }
 
+void RegistryServer::_handleShardResponse(UDPMessage &msg) {
+    LOG_TRACE(_env, "received ShardResponse from %s", msg.clientAddr);
+
+    ShardRespMsg respMsg;
+    try {
+        respMsg.unpack(msg.buf);
+    } catch (const BincodeException &err) {
+        LOG_ERROR(_env, "Could not parse ShardResponse: %s", err.what());
+        return;
+    }
+
+    auto &resp = _shardResponses.emplace_back();
+    resp.requestId = respMsg.id;
+    resp.resp = std::move(respMsg.body);
+    LOG_TRACE(_env, "Received ShardResponse for requests id %s kind %s", respMsg.id, resp.resp.kind());
+}
+
 uint8_t RegistryServer::_getReplicaId(const IpPort &clientAddress) {
     auto replicasPtr = _replicaInfo;
     if (!replicasPtr) {
@@ -419,7 +458,7 @@ void RegistryServer::_packLogsDBResponse(LogsDBResponse &response) {
         return;
     }
 
-    _sender.prepareOutgoingMessage(_env, _socks[0].addr(), addrInfo, 
+    _sender.prepareOutgoingMessage(_env, _socks[0].addr(), addrInfo,
         [&response, this](BincodeBuf &buf) {
             response.msg.pack(buf, _expandedRegistryKey);
     });
@@ -441,7 +480,7 @@ void RegistryServer::_packLogsDBRequest(LogsDBRequest &request) {
         return;
     }
 
-    _sender.prepareOutgoingMessage(_env, _socks[0].addr(), addrInfo, 
+    _sender.prepareOutgoingMessage(_env, _socks[0].addr(), addrInfo,
         [&request, this](BincodeBuf &buf) {
             request.msg.pack(buf, _expandedRegistryKey);
     });

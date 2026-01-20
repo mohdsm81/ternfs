@@ -877,6 +877,8 @@ func (k RegistryMessageKind) String() string {
 		return "CLEAR_CDC_INFO"
 	case 37:
 		return "UPDATE_BLOCK_SERVICE_PATH"
+	case 38:
+		return "SET_BLOCK_SERVICE_HAS_FILES"
 	default:
 		return fmt.Sprintf("RegistryMessageKind(%d)", k)
 	}
@@ -913,6 +915,7 @@ const (
 	MOVE_CDC_LEADER                     RegistryMessageKind = 0x23
 	CLEAR_CDC_INFO                      RegistryMessageKind = 0x24
 	UPDATE_BLOCK_SERVICE_PATH           RegistryMessageKind = 0x25
+	SET_BLOCK_SERVICE_HAS_FILES         RegistryMessageKind = 0x26
 )
 
 var AllRegistryMessageKind = [...]RegistryMessageKind{
@@ -946,9 +949,10 @@ var AllRegistryMessageKind = [...]RegistryMessageKind{
 	MOVE_CDC_LEADER,
 	CLEAR_CDC_INFO,
 	UPDATE_BLOCK_SERVICE_PATH,
+	SET_BLOCK_SERVICE_HAS_FILES,
 }
 
-const MaxRegistryMessageKind RegistryMessageKind = 37
+const MaxRegistryMessageKind RegistryMessageKind = 38
 
 func MkRegistryMessage(k string) (RegistryRequest, RegistryResponse, error) {
 	switch {
@@ -1012,6 +1016,8 @@ func MkRegistryMessage(k string) (RegistryRequest, RegistryResponse, error) {
 		return &ClearCdcInfoReq{}, &ClearCdcInfoResp{}, nil
 	case k == "UPDATE_BLOCK_SERVICE_PATH":
 		return &UpdateBlockServicePathReq{}, &UpdateBlockServicePathResp{}, nil
+	case k == "SET_BLOCK_SERVICE_HAS_FILES":
+		return &SetBlockServiceHasFilesReq{}, &SetBlockServiceHasFilesResp{}, nil
 	default:
 		return nil, nil, fmt.Errorf("bad kind string %s", k)
 	}
@@ -6593,6 +6599,42 @@ func (v *UpdateBlockServicePathResp) Pack(w io.Writer) error {
 }
 
 func (v *UpdateBlockServicePathResp) Unpack(r io.Reader) error {
+	return nil
+}
+
+func (v *SetBlockServiceHasFilesReq) RegistryRequestKind() RegistryMessageKind {
+	return SET_BLOCK_SERVICE_HAS_FILES
+}
+
+func (v *SetBlockServiceHasFilesReq) Pack(w io.Writer) error {
+	if err := bincode.PackScalar(w, uint64(v.Id)); err != nil {
+		return err
+	}
+	if err := bincode.PackScalar(w, bool(v.HasFiles)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *SetBlockServiceHasFilesReq) Unpack(r io.Reader) error {
+	if err := bincode.UnpackScalar(r, (*uint64)(&v.Id)); err != nil {
+		return err
+	}
+	if err := bincode.UnpackScalar(r, (*bool)(&v.HasFiles)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *SetBlockServiceHasFilesResp) RegistryResponseKind() RegistryMessageKind {
+	return SET_BLOCK_SERVICE_HAS_FILES
+}
+
+func (v *SetBlockServiceHasFilesResp) Pack(w io.Writer) error {
+	return nil
+}
+
+func (v *SetBlockServiceHasFilesResp) Unpack(r io.Reader) error {
 	return nil
 }
 

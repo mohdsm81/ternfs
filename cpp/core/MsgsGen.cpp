@@ -584,6 +584,9 @@ std::ostream& operator<<(std::ostream& out, RegistryMessageKind kind) {
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         out << "UPDATE_BLOCK_SERVICE_PATH";
         break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        out << "SET_BLOCK_SERVICE_HAS_FILES";
+        break;
     case RegistryMessageKind::EMPTY:
         out << "EMPTY";
         break;
@@ -5227,6 +5230,42 @@ std::ostream& operator<<(std::ostream& out, const UpdateBlockServicePathResp& x)
     return out;
 }
 
+void SetBlockServiceHasFilesReq::pack(BincodeBuf& buf) const {
+    id.pack(buf);
+    buf.packScalar<bool>(hasFiles);
+}
+void SetBlockServiceHasFilesReq::unpack(BincodeBuf& buf) {
+    id.unpack(buf);
+    hasFiles = buf.unpackScalar<bool>();
+}
+void SetBlockServiceHasFilesReq::clear() {
+    id = BlockServiceId(0);
+    hasFiles = bool(0);
+}
+bool SetBlockServiceHasFilesReq::operator==(const SetBlockServiceHasFilesReq& rhs) const {
+    if ((BlockServiceId)this->id != (BlockServiceId)rhs.id) { return false; };
+    if ((bool)this->hasFiles != (bool)rhs.hasFiles) { return false; };
+    return true;
+}
+std::ostream& operator<<(std::ostream& out, const SetBlockServiceHasFilesReq& x) {
+    out << "SetBlockServiceHasFilesReq(" << "Id=" << x.id << ", " << "HasFiles=" << x.hasFiles << ")";
+    return out;
+}
+
+void SetBlockServiceHasFilesResp::pack(BincodeBuf& buf) const {
+}
+void SetBlockServiceHasFilesResp::unpack(BincodeBuf& buf) {
+}
+void SetBlockServiceHasFilesResp::clear() {
+}
+bool SetBlockServiceHasFilesResp::operator==(const SetBlockServiceHasFilesResp& rhs) const {
+    return true;
+}
+std::ostream& operator<<(std::ostream& out, const SetBlockServiceHasFilesResp& x) {
+    out << "SetBlockServiceHasFilesResp(" << ")";
+    return out;
+}
+
 void FetchBlockReq::pack(BincodeBuf& buf) const {
     buf.packScalar<uint64_t>(blockId);
     buf.packScalar<uint32_t>(offset);
@@ -9025,6 +9064,15 @@ UpdateBlockServicePathReq& RegistryReqContainer::setUpdateBlockServicePath() {
     auto& x = _data.emplace<29>();
     return x;
 }
+const SetBlockServiceHasFilesReq& RegistryReqContainer::getSetBlockServiceHasFiles() const {
+    ALWAYS_ASSERT(_kind == RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES, "%s != %s", _kind, RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES);
+    return std::get<30>(_data);
+}
+SetBlockServiceHasFilesReq& RegistryReqContainer::setSetBlockServiceHasFiles() {
+    _kind = RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES;
+    auto& x = _data.emplace<30>();
+    return x;
+}
 RegistryReqContainer::RegistryReqContainer() {
     clear();
 }
@@ -9132,6 +9180,9 @@ void RegistryReqContainer::operator=(const RegistryReqContainer& other) {
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         setUpdateBlockServicePath() = other.getUpdateBlockServicePath();
         break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        setSetBlockServiceHasFiles() = other.getSetBlockServiceHasFiles();
+        break;
     default:
         throw TERN_EXCEPTION("bad RegistryMessageKind kind %s", other.kind());
     }
@@ -9205,6 +9256,8 @@ size_t RegistryReqContainer::packedSize() const {
         return sizeof(RegistryMessageKind) + std::get<28>(_data).packedSize();
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         return sizeof(RegistryMessageKind) + std::get<29>(_data).packedSize();
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        return sizeof(RegistryMessageKind) + std::get<30>(_data).packedSize();
     default:
         throw TERN_EXCEPTION("bad RegistryMessageKind kind %s", _kind);
     }
@@ -9302,6 +9355,9 @@ void RegistryReqContainer::pack(BincodeBuf& buf) const {
         break;
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         std::get<29>(_data).pack(buf);
+        break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        std::get<30>(_data).pack(buf);
         break;
     default:
         throw TERN_EXCEPTION("bad RegistryMessageKind kind %s", _kind);
@@ -9401,6 +9457,9 @@ void RegistryReqContainer::unpack(BincodeBuf& buf) {
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         _data.emplace<29>().unpack(buf);
         break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        _data.emplace<30>().unpack(buf);
+        break;
     default:
         throw BINCODE_EXCEPTION("bad RegistryMessageKind kind %s", _kind);
     }
@@ -9470,6 +9529,8 @@ bool RegistryReqContainer::operator==(const RegistryReqContainer& other) const {
         return getClearCdcInfo() == other.getClearCdcInfo();
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         return getUpdateBlockServicePath() == other.getUpdateBlockServicePath();
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        return getSetBlockServiceHasFiles() == other.getSetBlockServiceHasFiles();
     default:
         throw BINCODE_EXCEPTION("bad RegistryMessageKind kind %s", _kind);
     }
@@ -9566,6 +9627,9 @@ std::ostream& operator<<(std::ostream& out, const RegistryReqContainer& x) {
         break;
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         out << x.getUpdateBlockServicePath();
+        break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        out << x.getSetBlockServiceHasFiles();
         break;
     case RegistryMessageKind::EMPTY:
         out << "EMPTY";
@@ -9855,6 +9919,15 @@ UpdateBlockServicePathResp& RegistryRespContainer::setUpdateBlockServicePath() {
     auto& x = _data.emplace<30>();
     return x;
 }
+const SetBlockServiceHasFilesResp& RegistryRespContainer::getSetBlockServiceHasFiles() const {
+    ALWAYS_ASSERT(_kind == RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES, "%s != %s", _kind, RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES);
+    return std::get<31>(_data);
+}
+SetBlockServiceHasFilesResp& RegistryRespContainer::setSetBlockServiceHasFiles() {
+    _kind = RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES;
+    auto& x = _data.emplace<31>();
+    return x;
+}
 RegistryRespContainer::RegistryRespContainer() {
     clear();
 }
@@ -9965,6 +10038,9 @@ void RegistryRespContainer::operator=(const RegistryRespContainer& other) {
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         setUpdateBlockServicePath() = other.getUpdateBlockServicePath();
         break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        setSetBlockServiceHasFiles() = other.getSetBlockServiceHasFiles();
+        break;
     default:
         throw TERN_EXCEPTION("bad RegistryMessageKind kind %s", other.kind());
     }
@@ -10040,6 +10116,8 @@ size_t RegistryRespContainer::packedSize() const {
         return sizeof(RegistryMessageKind) + std::get<29>(_data).packedSize();
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         return sizeof(RegistryMessageKind) + std::get<30>(_data).packedSize();
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        return sizeof(RegistryMessageKind) + std::get<31>(_data).packedSize();
     default:
         throw TERN_EXCEPTION("bad RegistryMessageKind kind %s", _kind);
     }
@@ -10140,6 +10218,9 @@ void RegistryRespContainer::pack(BincodeBuf& buf) const {
         break;
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         std::get<30>(_data).pack(buf);
+        break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        std::get<31>(_data).pack(buf);
         break;
     default:
         throw TERN_EXCEPTION("bad RegistryMessageKind kind %s", _kind);
@@ -10242,6 +10323,9 @@ void RegistryRespContainer::unpack(BincodeBuf& buf) {
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         _data.emplace<30>().unpack(buf);
         break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        _data.emplace<31>().unpack(buf);
+        break;
     default:
         throw BINCODE_EXCEPTION("bad RegistryMessageKind kind %s", _kind);
     }
@@ -10313,6 +10397,8 @@ bool RegistryRespContainer::operator==(const RegistryRespContainer& other) const
         return getClearCdcInfo() == other.getClearCdcInfo();
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         return getUpdateBlockServicePath() == other.getUpdateBlockServicePath();
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        return getSetBlockServiceHasFiles() == other.getSetBlockServiceHasFiles();
     default:
         throw BINCODE_EXCEPTION("bad RegistryMessageKind kind %s", _kind);
     }
@@ -10412,6 +10498,9 @@ std::ostream& operator<<(std::ostream& out, const RegistryRespContainer& x) {
         break;
     case RegistryMessageKind::UPDATE_BLOCK_SERVICE_PATH:
         out << x.getUpdateBlockServicePath();
+        break;
+    case RegistryMessageKind::SET_BLOCK_SERVICE_HAS_FILES:
+        out << x.getSetBlockServiceHasFiles();
         break;
     case RegistryMessageKind::EMPTY:
         out << "EMPTY";
