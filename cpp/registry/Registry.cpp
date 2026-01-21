@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "Assert.hpp"
 #include "Bincode.hpp"
@@ -76,6 +77,7 @@ public:
         _registerer(registerer),
         _server(server),
         _logsDB(logsDB),
+        _registryDB(registryDB),
         _writer(writer),
         _replicas({}),
         _replicaFinishedBootstrap({}),
@@ -133,8 +135,125 @@ public:
                 _readRequests.emplace_back(std::move(req));
                 break;
             }
+            case RegistryMessageKind::DECOMMISSION_BLOCK_SERVICE: {
+                const auto& decomReq = req.req.getDecommissionBlockService();
+                BlockServiceId targetId = decomReq.id;
+
+                std::vector<FullBlockServiceInfo> blockServices;
+                _registryDB.blockServices(blockServices);
+
+                const FullBlockServiceInfo* targetBS = nullptr;
+
+                struct GroupKey {
+                    uint8_t loc;
+                    uint8_t sc;
+                    bool operator==(const GroupKey& o) const { return loc == o.loc && sc == o.sc; }
+                };
+                struct GroupStats {
+                    GroupKey key;
+                    uint32_t unreadableCount = 0;
+                };
+
+                struct UnreadableFDKey {
+                    uint8_t loc;
+                    uint8_t sc;
+                    FailureDomain fd;
+
+                    bool operator==(const UnreadableFDKey& other) const {
+                        return loc == other.loc && sc == other.sc && fd == other.fd;
+                    }
+                };
+
+                struct UnreadableFDKeyHash {
+                    std::size_t operator()(const UnreadableFDKey& k) const {
+                        size_t hash = 2166136261u;
+                        auto combine = [&](uint8_t b) {
+                            hash ^= b;
+                            hash *= 16777619u;
+                        };
+
+                        combine(k.loc);
+                        combine(k.sc);
+
+                        for (uint8_t b : k.fd.name.data) {
+                            combine(b);
+                        }
+                        return hash;
+                    }
+                };
+
+                std::vector<GroupStats> stats;
+                std::unordered_set<UnreadableFDKey, UnreadableFDKeyHash> unreadableFDs;
+
+                for (const auto& bs : blockServices) {
+                    if (bs.id == targetId) {
+                        targetBS = &bs;
+                    }
+
+                    if(!bs.hasFiles || isReadable(bs.flags)) {
+                        continue;
+                    }
+
+                    GroupKey key{bs.locationId, bs.storageClass};
+                    auto it = std::find_if(stats.begin(), stats.end(), [&](const GroupStats& g){ return g.key == key; });
+                    if (it == stats.end()) {
+                        stats.push_back({key, 1});
+                        unreadableFDs.insert({bs.locationId, bs.storageClass, bs.failureDomain});
+                    } else {
+                        if (unreadableFDs.find({bs.locationId, bs.storageClass, bs.failureDomain}) == unreadableFDs.end()) {
+                            unreadableFDs.insert({bs.locationId, bs.storageClass, bs.failureDomain});
+                            it->unreadableCount++;
+                        }
+                    }
+                }
+
+                if (!targetBS) {
+                    auto& resp = _registryResponses.emplace_back();
+                    resp.requestId = req.requestId;
+                    resp.resp.setError() = TernError::BLOCK_SERVICE_NOT_FOUND;
+                    break;
+                }
+
+                if (targetBS->flags == BlockServiceFlags::DECOMMISSIONED) {
+                    auto& resp = _registryResponses.emplace_back();
+                    resp.requestId = req.requestId;
+                    resp.resp.setDecommissionBlockService();
+                    break;
+                }
+
+                auto now = ternNow();
+                auto lastIt = std::find_if(_lastDecommissionTimes.begin(), _lastDecommissionTimes.end(),
+                    [&](const auto& p){ return p.first == targetBS->failureDomain; });
+
+                if (lastIt != _lastDecommissionTimes.end()) {
+                    if (now - lastIt->second < _options.minDecomInterval) {
+                        auto& resp = _registryResponses.emplace_back();
+                        resp.requestId = req.requestId;
+                        resp.resp.setError() = TernError::AUTO_DECOMMISSION_FORBIDDEN;
+                        break;
+                    }
+                }
+
+                GroupKey targetKey{targetBS->locationId, targetBS->storageClass};
+                auto it = std::find_if(stats.begin(), stats.end(), [&](const GroupStats& g){ return g.key == targetKey; });
+
+                if (it != stats.end() && it->unreadableCount >= _options.alertAfterUnavailableFailureDomains) {
+                    auto& resp = _registryResponses.emplace_back();
+                    resp.requestId = req.requestId;
+                    resp.resp.setError() = TernError::AUTO_DECOMMISSION_FORBIDDEN;
+                    break;
+                }
+
+                if (lastIt != _lastDecommissionTimes.end()) {
+                    lastIt->second = now;
+                } else {
+                    _lastDecommissionTimes.emplace_back(targetBS->failureDomain, now);
+                }
+
+                _writeRequests.emplace_back(std::move(req));
+                break;
+            }
             case RegistryMessageKind::REGISTER_BLOCK_SERVICES:
-            case RegistryMessageKind::DECOMMISSION_BLOCK_SERVICE:
             case RegistryMessageKind::CREATE_LOCATION:
             case RegistryMessageKind::RENAME_LOCATION:
             case RegistryMessageKind::REGISTER_SHARD:
@@ -188,6 +307,7 @@ private:
     Registerer& _registerer;
     RegistryServer& _server;
     LogsDB& _logsDB;
+    RegistryDB& _registryDB;
     RegistryWriter& _writer;
 
     std::array<AddrsInfo, LogsDB::REPLICA_COUNT> _replicas;
@@ -200,6 +320,8 @@ private:
 
 
     std::vector<RegistryResponse> _registryResponses;
+
+    std::vector<std::pair<FailureDomain, TernTime>> _lastDecommissionTimes;
 
 
     void _processBootstrapRequest(RegistryRequest &req) {

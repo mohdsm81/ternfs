@@ -16,7 +16,7 @@ struct RegistryOptions {
     RegistryClientOptions registryClientOptions;
     LogsDBOptions logsDBOptions;
     ServerOptions serverOptions;
-  
+
     // Registry specific settings
     bool enforceStableIp = false;
     bool enforceStableLeader = false;
@@ -24,7 +24,7 @@ struct RegistryOptions {
     Duration staleDelay = 3_mins;
     Duration blockServiceUsageDelay = 0_mins;
     Duration minDecomInterval = 1_hours;
-    uint8_t alertAfterUnavailableFailureDomains = 3;
+    uint8_t alertAfterUnavailableFailureDomains = 4;
     uint32_t maxFailureDomainsPerShard = 28;
     Duration writableBlockServiceUpdateInterval = 30_mins;
     bool usingDynamicPorts = false;
