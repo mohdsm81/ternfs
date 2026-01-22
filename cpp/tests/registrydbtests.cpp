@@ -782,6 +782,7 @@ TEST_CASE("DecommissionBlockService") {
 TEST_CASE("ShardBlockServiceAssignment") {
     RegistryOptions options;
     options.blockServiceUsageDelay = 0_mins;  // Ensure immediate availability
+    options.maxFailureDomainsPerShard = 50; // Increase limit for testing
     TempRegistryDB db(LogLevel::LOG_ERROR);
     db.open(options);
 
