@@ -5,6 +5,7 @@
 #include "RegistryReader.hpp"
 #include "Assert.hpp"
 #include "Msgs.hpp"
+#include "MsgsGen.hpp"
 #include "RegistryCommon.hpp"
 #include "RegistryDB.hpp"
 #include "RegistryServer.hpp"
@@ -122,11 +123,12 @@ void RegistryReader::step() {
         case RegistryMessageKind::ERASE_DECOMMISSIONED_BLOCK: {
             auto& eraseReq = req.req.getEraseDecommissionedBlock();
             BincodeFixedBytes<8> proof;
-            if (_eraseBlock(eraseReq, proof)) {
+            auto err = _eraseBlock(eraseReq, proof);
+            if (err == TernError::NO_ERROR) {
                  auto& registryResp = resp.resp.setEraseDecommissionedBlock();
                  registryResp.proof = proof;
             } else {
-                resp.resp.setError() = TernError::INTERNAL_ERROR;
+                resp.resp.setError() = err;
             }
             break;
         }
@@ -317,11 +319,11 @@ std::vector<BlockService> RegistryReader::_changedBlockServices(LocationId locat
     return res;
 }
 
-bool RegistryReader::_eraseBlock(const EraseDecommissionedBlockReq& req, BincodeFixedBytes<8>& proof) {
+TernError RegistryReader::_eraseBlock(const EraseDecommissionedBlockReq& req, BincodeFixedBytes<8>& proof) {
     _populateBlockServiceCache();
     auto bsIt = _decommissionedServices.find(req.blockServiceId);
     if (bsIt == _decommissionedServices.end()) {
-        return false;
+        return TernError::BLOCK_SERVICE_NOT_FOUND;
     }
 
     // validate certificate
@@ -334,7 +336,7 @@ bool RegistryReader::_eraseBlock(const EraseDecommissionedBlockReq& req, Bincode
         bbuf.packScalar<char>('e');
         bbuf.packScalar<uint64_t>(req.blockId);
         if (cbcmac(bsIt->second, (uint8_t*)buf, sizeof(buf)) != req.certificate) {
-            return false;
+            return TernError::BAD_CERTIFICATE;
         }
     }
     // generate proof
@@ -348,5 +350,5 @@ bool RegistryReader::_eraseBlock(const EraseDecommissionedBlockReq& req, Bincode
         bbuf.packScalar<uint64_t>(req.blockId);
         proof.data = cbcmac(bsIt->second, (uint8_t*)buf, sizeof(buf));
     }
-    return true;
+    return TernError::NO_ERROR;
 }
