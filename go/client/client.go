@@ -1018,6 +1018,8 @@ func (c *Client) refreshAddrs() error {
 			blockServices := blockServicesResp.(*msgs.AllBlockServicesDeprecatedResp)
 			var blockServicesToAdd []msgs.BlacklistEntry
 			func() {
+				c.blockServicesLock.RLock()
+				defer c.blockServicesLock.RUnlock()
 				for _, bs := range blockServices.BlockServices {
 					if _, ok := c.blockServiceToFailureDomain[bs.Id]; !ok {
 						blockServicesToAdd = append(blockServicesToAdd, msgs.BlacklistEntry{bs.FailureDomain, bs.Id})
