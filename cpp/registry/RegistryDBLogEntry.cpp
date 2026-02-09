@@ -59,7 +59,6 @@ void RegistryDBLogEntry::requestsToLogEntries(std::vector<RegistryRequest>& requ
         if (req.packedSize() > sizeAvailable) {
             serialize();
         }
-        auto& entryOut = out.back();
         auto reqPackedSize = req.packedSize();
         if (reqPackedSize > sizeAvailable) {
             // This is the only request too big to fit in an empty log entry. We need to split it.
