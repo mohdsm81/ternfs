@@ -11,6 +11,7 @@
 #include <rocksdb/options.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/write_batch.h>
+#include <rocksdb/utilities/checkpoint.h>
 
 #include "BlockServicesCacheDB.hpp"
 #include "CDCDB.hpp"
@@ -22,6 +23,73 @@
 #include "ShardDBTools.hpp"
 
 #define die(...) do { fprintf(stderr, __VA_ARGS__); exit(1); } while(false)
+
+static void createCheckpoint(const std::string& dbPath, const std::string& checkpointPath) {
+    Logger logger(LogLevel::LOG_INFO, STDERR_FILENO, false, false);
+    std::shared_ptr<XmonAgent> xmon;
+    Env env(logger, xmon, "createCheckpoint");
+
+    rocksdb::Options listOptions;
+    std::vector<std::string> cfNames;
+    auto s = rocksdb::DB::ListColumnFamilies(listOptions, dbPath, &cfNames);
+    if (!s.ok()) {
+        die("Failed to list column families in %s: %s\n", dbPath.c_str(), s.ToString().c_str());
+    }
+
+    std::unordered_map<std::string, rocksdb::ColumnFamilyOptions> knownCFOptions;
+    auto addKnown = [&](const std::vector<rocksdb::ColumnFamilyDescriptor>& descriptors) {
+        for (const auto& d : descriptors) {
+            knownCFOptions[d.name] = d.options;
+        }
+    };
+    addKnown(ShardDB::getColumnFamilyDescriptors());
+    addKnown(LogsDB::getColumnFamilyDescriptors());
+    addKnown(CDCDB::getColumnFamilyDescriptors());
+    addKnown(BlockServicesCacheDB::getColumnFamilyDescriptors());
+    addKnown(RegistryDB::getColumnFamilyDescriptors());
+
+    std::vector<rocksdb::ColumnFamilyDescriptor> cfDescriptors;
+    for (const auto& name : cfNames) {
+        auto it = knownCFOptions.find(name);
+        if (it != knownCFOptions.end()) {
+            cfDescriptors.emplace_back(name, it->second);
+        } else {
+            cfDescriptors.emplace_back(name, rocksdb::ColumnFamilyOptions());
+        }
+    }
+
+    rocksdb::Options dbOptions;
+    dbOptions.compression = rocksdb::kLZ4Compression;
+    dbOptions.bottommost_compression = rocksdb::kZSTD;
+    dbOptions.create_if_missing = false;
+    dbOptions.create_missing_column_families = false;
+    dbOptions.max_open_files = 1000;
+
+    rocksdb::DB* db = nullptr;
+    std::vector<rocksdb::ColumnFamilyHandle*> handles;
+    s = rocksdb::DB::OpenForReadOnly(dbOptions, dbPath, cfDescriptors, &handles, &db);
+    if (!s.ok()) {
+        die("Failed to open DB %s: %s\n", dbPath.c_str(), s.ToString().c_str());
+    }
+
+    LOG_INFO(env, "Creating checkpoint %s -> %s", dbPath, checkpointPath);
+    rocksdb::Checkpoint* checkpoint = nullptr;
+    s = rocksdb::Checkpoint::Create(db, &checkpoint);
+    if (!s.ok()) {
+        die("Failed to create checkpoint object: %s\n", s.ToString().c_str());
+    }
+    std::unique_ptr<rocksdb::Checkpoint> checkpointGuard(checkpoint);
+
+    s = checkpoint->CreateCheckpoint(checkpointPath);
+    if (!s.ok()) {
+        die("Failed to create checkpoint at %s: %s\n", checkpointPath.c_str(), s.ToString().c_str());
+    }
+
+    for (auto* h : handles) db->DestroyColumnFamilyHandle(h);
+    delete db;
+
+    LOG_INFO(env, "Checkpoint created: %s", checkpointPath);
+}
 
 static void copyDB(const std::string& srcPath, const std::string& dstPath) {
     Logger logger(LogLevel::LOG_INFO, STDERR_FILENO, false, false);
@@ -193,6 +261,8 @@ static void usage(const char* binary) {
     fprintf(stderr, "       Aggregates expected block usage per block service\n");
     fprintf(stderr, "  copy-db OLD_DB_PATH NEW_DB_PATH\n");
     fprintf(stderr, "       Copies all column families from OLD_DB_PATH to NEW_DB_PATH by iterating all keys.\n");
+    fprintf(stderr, "  create-checkpoint DB_PATH CHECKPOINT_PATH\n");
+    fprintf(stderr, "       Creates a RocksDB checkpoint (hardlink snapshot) of DB_PATH at CHECKPOINT_PATH.\n");
     fprintf(stderr, "  rebuild-block-services-to-files DB_PATH\n");
     fprintf(stderr, "       Drops and recreates the blockServicesToFiles CF by scanning all spans.\n");
 }
@@ -253,6 +323,10 @@ int main(int argc, char** argv) {
             std::string oldPath = getNextArg();
             std::string newPath = getNextArg();
             copyDB(oldPath, newPath);
+        } else if (arg == "create-checkpoint") {
+            std::string dbPath = getNextArg();
+            std::string checkpointPath = getNextArg();
+            createCheckpoint(dbPath, checkpointPath);
         } else if (arg == "rebuild-block-services-to-files") {
             std::string dbPath = getNextArg();
             ShardDBTools::rebuildBlockServicesToFiles(dbPath);
