@@ -1743,6 +1743,10 @@ struct CDCDBImpl {
             bool removeSentinel = true;
             if (it->Valid()) { // there's something, set the sentinel
                 auto nextK = ExternalValue<DirsToTxnsKey>::FromSlice(it->key());
+                // This should never happen, since we specify the upper bound.
+                // However the RocksDB that we use is buggy, see
+                // <https://github.com/facebook/rocksdb/commit/543191f2eacadf14e3aa6ff9a08f85a8ad82da95>.
+                // To be removed on upgrade.
                 if (nextK().dirId() == dirId) {
                     removeSentinel = false;
                     auto sentinelV = CDCTxnIdValue::Static(nextK().txnId());
