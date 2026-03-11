@@ -105,7 +105,6 @@ static int file_open(struct inode* inode, struct file* filp) {
             // so we might as well refresh and re-check
             int err = ternfs_do_getattr(enode, ATTR_CACHE_NO_TIMEOUT);
             if (err) {
-                inode_unlock(inode);
                 goto out;
             }
             diff = atime_ts.tv_sec - min(inode_get_atime_sec(&enode->inode), atime_ts.tv_sec);
