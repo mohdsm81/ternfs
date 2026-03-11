@@ -18,7 +18,7 @@ case $build_variant in
         container=ghcr.io/xtxmarkets/ternfs-alpine-build:2025-09-18-1
         ;;
     ubuntu|ubuntudebug|ubuntusanitized|ubuntuvalgrind)
-        container=${TERN_UBUNTU_BUILD_CONTAINER:-ghcr.io/xtxmarkets/ternfs-ubuntu-build:2025-09-18}
+        container=${TERN_UBUNTU_BUILD_CONTAINER:-ghcr.io/xtxmarkets/ternfs-ubuntu-build:2026-03-11}
         ;;
 esac
 
