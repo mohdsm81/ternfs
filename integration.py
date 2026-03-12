@@ -26,13 +26,14 @@ if args.docker:
     build_sanitized = 'build/ubuntusanitized'
     build_release = 'build/ubuntu'
     build_valgrind = 'build/ubuntuvalgrind'
-    # setup right user -- we need it with a name because of fusermount
-    gid = int(os.environ['GID'])
-    uid = int(os.environ['UID'])
-    subprocess.run(['groupadd', '-g', str(gid), 'restech'])
-    subprocess.run(['useradd', '-u', str(uid), '-g', 'restech', 'restechprod'])
-    os.setgid(gid)
-    os.setuid(uid)
+    if os.environ.get('GID') is not None and os.environ.get('UID') is not None:
+        # setup right user -- we need it with a name because of fusermount
+        gid = int(os.environ['GID'])
+        uid = int(os.environ['UID'])
+        subprocess.run(['groupadd', '-g', str(gid), 'ternfsgroup'])
+        subprocess.run(['useradd', '-u', str(uid), '-g', 'ternfsgroup', 'ternfsuser'])
+        os.setgid(gid)
+        os.setuid(uid)
 else:
     build_sanitized = 'build/sanitized'
     build_release = 'build/release'

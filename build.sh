@@ -24,6 +24,10 @@ esac
 
 # Re-exec inside container if needed
 if [ -n "$container" ] && [ "${IN_TERN_BUILD_CONTAINER:-}" != "1" ]; then
+    USER_FLAG="--user $(id -u):$(id -g)"
+    if docker info -f '{{json .SecurityOptions}}' 2>/dev/null | grep -q 'rootless'; then
+        USER_FLAG="" # Clear the flag so the container runs as container-root in rootless docker
+    fi
     # See <https://groups.google.com/g/seastar-dev/c/r7W-Kqzy9O4>
     # for motivation for `--security-opt seccomp=unconfined`,
     # the `--pids-limit -1` is not something I hit but it seems
@@ -34,7 +38,7 @@ if [ -n "$container" ] && [ "${IN_TERN_BUILD_CONTAINER:-}" != "1" ]; then
         --security-opt seccomp=unconfined \
         --rm -i \
         --mount "type=bind,src=${SCRIPT_DIR},dst=/ternfs" \
-        -u "$(id -u):$(id -g)" \
+        $USER_FLAG \
         -e IN_TERN_BUILD_CONTAINER=1 \
         -e MAKE_PARALLELISM -e http_proxy -e https_proxy -e no_proxy \
         -e GOCACHE=/ternfs/.cache \

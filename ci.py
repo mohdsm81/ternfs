@@ -25,14 +25,34 @@ args = parser.parse_args()
 script_dir = os.path.dirname(os.path.realpath(__file__))
 os.chdir(script_dir)
 
+def is_rootless_docker() -> bool:
+    """Checks if the Docker daemon is running in rootless mode."""
+    try:
+        result = subprocess.run(['docker', 'info', '-f', '{{json .SecurityOptions}}'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return 'rootless' in result.stdout
+
+    except subprocess.CalledProcessError:
+        print("Warning: Could not connect to Docker daemon.", file=sys.stderr)
+        return False
+    except FileNotFoundError:
+        print("Error: Docker command not found. Is Docker installed?", file=sys.stderr)
+        sys.exit(1)
+
 def run_docker_unbuffered(docker_args, args):
     # See <https://groups.google.com/g/seastar-dev/c/r7W-Kqzy9O4>
     # for motivation for `--security-opt seccomp=unconfined`,
     # the `--pids-limit -1` is not something I hit but it seems
     # like a good idea.
     container = 'ghcr.io/xtxmarkets/ternfs-ubuntu-build:2026-03-11'
+    cmd = ['docker', 'run', '--pids-limit', '-1', '--security-opt', 'seccomp=unconfined', '--mount', f'type=bind,src={script_dir},dst=/ternfs', '--cap-add', 'SYS_ADMIN', '--privileged', '--rm', '-i']
+    if not is_rootless_docker():
+        cmd += ['-e', f'UID={os.getuid()}', '-e', f'GID={os.getgid()}']
     run_cmd_unbuffered(
-        ['docker', 'run', '--pids-limit', '-1', '--security-opt', 'seccomp=unconfined', '--mount', f'type=bind,src={script_dir},dst=/ternfs', '--cap-add', 'SYS_ADMIN', '--privileged', '--rm', '-i', '-e', f'UID={os.getuid()}', '-e', f'GID={os.getgid()}'] + docker_args + [container] + args
+         cmd + docker_args + [container] + args
     )
 
 if args.build:
