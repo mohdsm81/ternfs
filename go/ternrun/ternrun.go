@@ -156,7 +156,7 @@ func main() {
 			if r == 0 {
 				dir = path.Join(*dataDir, "registry")
 			}
-			
+
 			opts := managedprocess.RegistryOpts{
 				Exe:             cppExes.RegistryExe,
 				LogLevel:        level,
@@ -266,7 +266,7 @@ func main() {
 		waitRegistryFor = 60 * time.Second
 	}
 	fmt.Printf("waiting for block services for %v...\n", waitRegistryFor)
-	client.WaitForBlockServices(l, registryAddress, int(*failureDomains**hddBlockServices**flashBlockServices*numLocations), true, waitRegistryFor)
+	client.WaitForBlockServices(l, registryAddress, int(*failureDomains*(*hddBlockServices+*flashBlockServices)*numLocations), true, waitRegistryFor)
 
 	// Start CDC
 	{
